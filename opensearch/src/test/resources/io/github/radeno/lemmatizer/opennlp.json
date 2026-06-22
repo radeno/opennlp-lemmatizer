@@ -1,0 +1,13 @@
+{
+    "index": {
+        "analysis": {
+            "filter": {
+                "cs_lemma": {
+                    "type": "opennlp_lemmatizer",
+                    "pos_model": "cs-pos.bin",
+                    "lemmatizer_model": "cs-lemmas.bin"
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,8 @@
+# Built / downloaded artifacts — reproduce with scripts/, do not commit
+.native-build/
+native/*.dylib
+native/*.so
+lib/*.jar
+models/*.udpipe
+target/
+.DS_Store

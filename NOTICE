@@ -1,0 +1,16 @@
+opennlp-lemmatizer
+Copyright 2026 the opennlp-lemmatizer contributors
+
+This product includes software developed at:
+- The Apache Software Foundation (https://www.apache.org/) — Apache OpenNLP, Apache Lucene.
+
+Third-party components and their licenses:
+- Apache OpenNLP, Apache Lucene (incl. lucene-analysis-opennlp): Apache License 2.0.
+- OpenSearch (org.opensearch:opensearch): Apache License 2.0. Used 'provided' (not redistributed).
+- Elasticsearch (org.elasticsearch:elasticsearch): Elastic License 2.0 / SSPL. Used 'provided'
+  for compilation only; NOT redistributed by this project. Building/using the Elasticsearch
+  plugin requires accepting Elastic's license for the Elasticsearch runtime you target.
+
+Model licensing (not bundled; downloaded by scripts/fetch-models.sh):
+- Apache OpenNLP cs/sk models derive from Universal Dependencies treebanks; several are
+  CC BY-NC-SA (non-commercial). Verify the model license before commercial use.

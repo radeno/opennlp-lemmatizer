@@ -1,0 +1,20 @@
+# build output
+target/
+**/target/
+
+# local-only build config (corporate mirror bypass etc.)
+**/mise.local.toml
+**/.mvn/settings.xml
+
+# large, reproducible test/model assets (fetched by scripts/)
+models/*.bin
+models/*.lem
+models/*.udpipe
+
+# UDPipe experiment native build outputs
+experiments/udpipe/.native-build/
+experiments/udpipe/native/*.dylib
+experiments/udpipe/native/*.so
+experiments/udpipe/lib/*.jar
+
+.DS_Store

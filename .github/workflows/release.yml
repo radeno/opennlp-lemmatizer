@@ -1,0 +1,29 @@
+name: Release
+
+# Tag a version to build both plugins and publish them as GitHub Release assets:
+#   git tag v0.1.0 && git push origin v0.1.0
+on:
+  push:
+    tags: [ 'v*' ]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+      # builds for the default node versions (OpenSearch 3.7.0, Elasticsearch 9.4.2)
+      - run: mvn -B clean package -DskipTests
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            opensearch/target/releases/*.zip
+            elasticsearch/target/releases/*.zip

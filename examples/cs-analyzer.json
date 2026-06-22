@@ -1,0 +1,27 @@
+{
+  "settings": {
+    "index": {
+      "analysis": {
+        "filter": {
+          "cs_lemma": {
+            "type": "opennlp_lemmatizer",
+            "pos_model": "cs-pos.bin",
+            "lemmatizer_model": "cs-lemmas.bin"
+          }
+        },
+        "analyzer": {
+          "cs_lemmatizer": {
+            "type": "custom",
+            "tokenizer": "standard",
+            "filter": [ "cs_lemma", "lowercase" ]
+          }
+        }
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "text": { "type": "text", "analyzer": "cs_lemmatizer" }
+    }
+  }
+}

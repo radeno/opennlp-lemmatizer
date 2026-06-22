@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>io.github.radeno</groupId>
+  <artifactId>opennlp-lemmatizer-parent</artifactId>
+  <version>0.1.0</version>
+  <packaging>pom</packaging>
+
+  <name>opennlp-lemmatizer (parent)</name>
+  <description>POS-aware OpenNLP lemmatizer token filter for OpenSearch and Elasticsearch</description>
+
+  <modules>
+    <module>core</module>
+    <module>opensearch</module>
+    <module>elasticsearch</module>
+  </modules>
+
+  <properties>
+    <maven.compiler.release>25</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+    <!-- engine — same Lucene (10.4.0) is used by both OpenSearch 3.7 and Elasticsearch 9.4 -->
+    <lucene.version>10.4.0</lucene.version>
+    <opennlp.version>2.5.4</opennlp.version>
+
+    <!-- target platforms (latest of each) -->
+    <opensearch.version>3.7.0</opensearch.version>
+    <elasticsearch.version>9.4.2</elasticsearch.version>
+
+    <!-- test -->
+    <log4j.version>2.25.4</log4j.version>
+    <junit.version>4.13.2</junit.version>
+    <hamcrest.version>2.2</hamcrest.version>
+    <jlemmagen.version>1.0</jlemmagen.version>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <!-- shared engine -->
+      <dependency>
+        <groupId>org.apache.lucene</groupId>
+        <artifactId>lucene-analysis-opennlp</artifactId>
+        <version>${lucene.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.opennlp</groupId>
+        <artifactId>opennlp-tools</artifactId>
+        <version>${opennlp.version}</version>
+      </dependency>
+
+      <!-- our shared core -->
+      <dependency>
+        <groupId>io.github.radeno</groupId>
+        <artifactId>opennlp-lemmatizer-core</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+
+      <!-- platforms (used 'provided' by the wrappers) -->
+      <dependency>
+        <groupId>org.opensearch</groupId>
+        <artifactId>opensearch</artifactId>
+        <version>${opensearch.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.elasticsearch</groupId>
+        <artifactId>elasticsearch</artifactId>
+        <version>${elasticsearch.version}</version>
+      </dependency>
+
+      <!-- test -->
+      <dependency>
+        <groupId>org.apache.logging.log4j</groupId>
+        <artifactId>log4j-core</artifactId>
+        <version>${log4j.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>junit</groupId>
+        <artifactId>junit</artifactId>
+        <version>${junit.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.hamcrest</groupId>
+        <artifactId>hamcrest</artifactId>
+        <version>${hamcrest.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>eu.hlavki.text</groupId>
+        <artifactId>jlemmagen</artifactId>
+        <version>${jlemmagen.version}</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <build>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-compiler-plugin</artifactId>
+          <version>3.13.0</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-surefire-plugin</artifactId>
+          <version>3.2.5</version>
+          <configuration>
+            <argLine>-Dtests.security.manager=false</argLine>
+            <!-- shared test models live in <repo-root>/models (gitignored, fetched by scripts) -->
+            <systemPropertyVariables>
+              <opennlp.models.dir>${maven.multiModuleProjectDirectory}/models</opennlp.models.dir>
+            </systemPropertyVariables>
+          </configuration>
+        </plugin>
+        <plugin>
+          <artifactId>maven-assembly-plugin</artifactId>
+          <version>3.7.1</version>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+  </build>
+</project>

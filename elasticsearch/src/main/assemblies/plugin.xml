@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<assembly>
+    <id>plugin</id>
+    <formats>
+        <format>zip</format>
+    </formats>
+    <includeBaseDirectory>false</includeBaseDirectory>
+    <dependencySets>
+        <dependencySet>
+            <outputDirectory>/</outputDirectory>
+            <useProjectArtifact>true</useProjectArtifact>
+            <!-- bundle only what Elasticsearch core does NOT provide; elasticsearch + lucene-core +
+                 lucene-analysis-common are provided at runtime and must not be bundled -->
+            <includes>
+                <include>io.github.radeno:elasticsearch-analysis-opennlp-lemmatizer</include>
+                <include>io.github.radeno:opennlp-lemmatizer-core</include>
+                <include>org.apache.lucene:lucene-analysis-opennlp</include>
+                <include>org.apache.opennlp:opennlp-tools</include>
+                <include>org.slf4j:slf4j-api</include>
+            </includes>
+        </dependencySet>
+    </dependencySets>
+    <files>
+        <file>
+            <source>plugin-descriptor.properties</source>
+            <outputDirectory>/</outputDirectory>
+            <filtered>true</filtered>
+        </file>
+    </files>
+</assembly>
