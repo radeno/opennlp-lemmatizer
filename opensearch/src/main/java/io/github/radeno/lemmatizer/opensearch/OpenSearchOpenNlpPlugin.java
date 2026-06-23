@@ -1,6 +1,5 @@
 package io.github.radeno.lemmatizer.opensearch;
 
-import static java.util.Collections.singletonMap;
 import static org.opensearch.plugins.AnalysisPlugin.requiresAnalysisSettings;
 
 import java.util.Map;
@@ -10,13 +9,13 @@ import org.opensearch.indices.analysis.AnalysisModule.AnalysisProvider;
 import org.opensearch.plugins.AnalysisPlugin;
 import org.opensearch.plugins.Plugin;
 
-/** Registers the {@code opennlp_lemmatizer} token filter with OpenSearch. */
+/** Registers the lemmatizer token filters with OpenSearch. */
 public class OpenSearchOpenNlpPlugin extends Plugin implements AnalysisPlugin {
 
     @Override
     public Map<String, AnalysisProvider<TokenFilterFactory>> getTokenFilters() {
-        return singletonMap(
-            "opennlp_lemmatizer",
-            requiresAnalysisSettings(OpenNlpLemmatizerTokenFilterFactory::new));
+        return Map.of(
+            "opennlp_lemmatizer", requiresAnalysisSettings(OpenNlpLemmatizerTokenFilterFactory::new),
+            "dictionary_lemmatizer", requiresAnalysisSettings(DictionaryLemmatizerTokenFilterFactory::new));
     }
 }

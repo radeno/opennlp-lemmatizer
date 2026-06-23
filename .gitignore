@@ -10,6 +10,7 @@ target/
 models/*.bin
 models/*.lem
 models/*.udpipe
+models/*.txt
 
 # UDPipe experiment native build outputs
 experiments/udpipe/.native-build/

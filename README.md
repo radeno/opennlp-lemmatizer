@@ -9,7 +9,10 @@ Works with any language Apache OpenNLP ships POS + lemmatizer models for (35+ la
 including Czech and Slovak. Useful for the lexical (BM25) side of search, alongside or instead
 of stemming — especially for highly inflected Slavic languages.
 
-> **Verified end-to-end** on real nodes: OpenSearch **3.7.0** and Elasticsearch **9.4.1**
+It also ships a faster, POS-free **`dictionary_lemmatizer`** (flat `form → lemma` lookup) for when
+raw speed matters more than disambiguation — see [Use](#use).
+
+> **Verified end-to-end** on real nodes: OpenSearch **3.7.0** and Elasticsearch **9.4.2**
 > (`_analyze "Děkuji že jsi přišel"` → `děkovat že být přijít` on both).
 
 ## Modules
@@ -38,20 +41,33 @@ mvn clean package
 
 ```bash
 mvn -pl opensearch    -am package -Dopensearch.version=3.7.0
-mvn -pl elasticsearch -am package -Delasticsearch.version=9.4.1
+mvn -pl elasticsearch -am package -Delasticsearch.version=9.4.2
 ```
 
 ## Models
 
-OpenNLP needs a POS model and a lemmatizer model per language. Fetch the official Apache
-OpenNLP models (Maven Central) with the helper:
+OpenNLP needs a POS model and a lemmatizer model per language. The official Apache OpenNLP models
+cover **35+ languages** (POS, lemmatizer, tokenizer, sentence detection) — full list at
+[opennlp.apache.org/models.html](https://opennlp.apache.org/models.html). Both Czech and **Slovak**
+are included. Fetch them from Maven Central with the helper:
 
 ```bash
 ./scripts/fetch-models.sh cs      # -> models/cs-pos.bin, models/cs-lemmas.bin
-./scripts/fetch-models.sh sk
+./scripts/fetch-models.sh sk      # -> models/sk-pos.bin, models/sk-lemmas.bin
 ```
 
 Place them in your node's `config/opennlp/` directory.
+
+> **Versions matter.** The plugin bundles Apache **OpenNLP `opennlp-tools` 2.5.4**, and
+> `fetch-models.sh` pulls **models 1.3.0** (trained with OpenNLP 2.5.4). Keep the model version
+> aligned with the engine — a major mismatch can fail to load. (Lucene 10.4.0, JDK 25.)
+
+For a **larger, POS-free** dictionary (e.g. where the official Slovak model is thin), fetch a flat
+`form → lemma` list for the `dictionary_lemmatizer` filter:
+
+```bash
+./scripts/fetch-models.sh sk-michmech   # -> models/sk-michmech.txt  (847k forms, ODbL)
+```
 
 ## Install
 
@@ -121,6 +137,31 @@ Full index-analyzer settings per language: [examples/cs-analyzer.json](examples/
 
 > POS tagging runs over the token stream as one sentence, so the filter is best placed after a
 > sentence-/field-sized tokenizer. OpenNLP lemmas are lowercased (UD convention).
+
+### Dictionary lemmatizer (fast, POS-free)
+
+A second filter, `dictionary_lemmatizer`, does a plain `form → lemma` lookup from a flat dictionary
+— **no part of speech**, so it can't truly disambiguate, but it runs at flat-lookup speed
+(comparable to jLemmaGen) and, unlike rule-based jLemmaGen, **leaves unknown words unchanged
+instead of mangling them**. Fetch a dictionary (e.g. `./scripts/fetch-models.sh sk-michmech`) into
+`config/opennlp/`, then:
+
+```bash
+curl -XPOST localhost:9200/_analyze -H 'Content-Type: application/json' -d '{
+  "tokenizer": "whitespace",
+  "filter": [{ "type": "dictionary_lemmatizer", "dictionary": "sk-michmech.txt" }],
+  "text": "Bratislava je krásne mesto"
+}'
+# tokens: Bratislava  byť  krásny  mesto
+```
+
+Verified against the **deployed jLemmaGen plugin**: on **Slovak** the dictionary beats it on the
+cases that matter — `je → byť` (jLemmaGen: `jesť`), `Boli → byť` (jLemmaGen mangles to `Boľ`),
+`lese → les` (jLemmaGen: `lesa`) — at the same speed. **Coverage is everything**, though: the
+michmech Slovak list is huge (847k forms) so it wins, but its Czech list is only ~35k forms, so
+there it is *not* a clear improvement. It stays POS-free (own gaps like `a → as`) and ranks below
+`opennlp_lemmatizer`. The michmech dictionaries are
+[ODbL](https://opendatacommons.org/licenses/odbl/) (attribution + share-alike).
 
 ## OpenNLP vs jLemmaGen
 
