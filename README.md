@@ -174,7 +174,7 @@ e.g. the `analysis-lemmagen` plugin). The trade-off is **quality vs speed**:
 | approach | context-free surface rules | **POS-aware** (tags part of speech, then lemmatizes) |
 | POS disambiguation | no | **yes** |
 | robust to capitalized words | no | yes |
-| throughput | ~5,100,000 tok/s | ~3,300 tok/s (POS tagger runs per token) |
+| throughput | fast (flat lookup) | much slower (POS tagger per token) |
 | footprint | pure-Java, one tiny `.lem` | pure-Java, two models (POS + lemmatizer) |
 | **Czech** &nbsp; `je` / `Tři` / `jablka` | `on` ✗ / `Tř` ✗ / `jablka` ✗ | `být` ✓ / `tři` ✓ / `jablko` ✓ |
 | **Slovak** `je` / `Boli` / `lese` | `jesť` ✗ / `Boľ` ✗ / `lesa` ✗ | `byť` ✓ / `byť` ✓ / `les` ✓ |
@@ -184,8 +184,35 @@ Czech one, so it has its own gaps — see [docs/COMPARISON.md](docs/COMPARISON.m
 
 **Rule of thumb:** jLemmaGen when raw indexing speed dominates (or in a hybrid setup where
 semantic vectors already absorb most morphology); OpenNLP when lexical quality matters and the
-~1500× lower throughput is acceptable. Full data — including a flat-dictionary baseline and the
+lower throughput is acceptable. Full data — including a flat-dictionary baseline and the
 higher-quality (but native) UDPipe — is in [docs/COMPARISON.md](docs/COMPARISON.md).
+
+<details>
+<summary>📊 <b>Throughput numbers</b> (click to expand)</summary>
+
+**Library microbenchmark** (`core`, steady state, no HTTP) — pure per-token cost:
+
+| engine | tokens/sec |
+|---|---:|
+| dictionary / jLemmaGen (flat lookup) | ~5,000,000 |
+| `opennlp_lemmatizer` (POS per token) | ~3,300 |
+| UDPipe (native) | ~10,000–200,000 |
+
+**Real node** (OpenSearch 3.7, `_analyze` through a configured index analyzer so the filter loads
+once), ~900-token request:
+
+| filter | tokens/sec |
+|---|---:|
+| baseline (no filter) | ~530,000 |
+| `dictionary_lemmatizer` | ~410,000 |
+| jLemmaGen (deployed) | ~320,000 |
+| `opennlp_lemmatizer` | ~12,000 |
+
+On a node the flat-lookup filters are HTTP-bound (equal in practice); `opennlp_lemmatizer` is the slow
+one. Beware: an *inline* `_analyze` filter re-loads the dictionary/model per request — measure (and
+run) through an index analyzer. Full notes in [docs/COMPARISON.md](docs/COMPARISON.md).
+
+</details>
 
 ## Built with AI assistance
 
