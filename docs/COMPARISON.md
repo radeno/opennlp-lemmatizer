@@ -52,13 +52,33 @@ UDPipe (full morphology) is the highest quality but native and CC BY-NC-SA.
 
 ## Throughput
 
-Czech corpus, steady state (ops built once, `reset()` per sentence):
+Two measurements, because *where* you measure changes the number.
 
-| engine | tokens/sec | notes |
+**Library microbenchmark** (`core`, steady state, no HTTP) — the pure per-token cost:
+
+| engine | tokens/sec |
+|---|---:|
+| dictionary / jLemmaGen (flat lookup) | ~5,000,000 |
+| `opennlp_lemmatizer` (MaxEnt POS per token) | ~3,300 |
+| UDPipe (native) | ~10,000–200,000 |
+
+**Real node** (OpenSearch 3.7, `_analyze` through a configured *index analyzer* so the filter loads
+once), ~900-token request:
+
+| filter | tokens/sec | note |
 |---|---:|---|
-| `dictionary_lemmatizer` / jLemmaGen | ~5,000,000 | flat lookup, pure-Java |
-| `opennlp_lemmatizer` | ~3,300 | MaxEnt POS tagger per token (~1500× slower) |
-| UDPipe (native) | ~10,000–200,000 | native C++ |
+| baseline (no filter) | ~530,000 | HTTP + tokenizer ceiling |
+| `dictionary_lemmatizer` | ~410,000 | HTTP-bound — as fast as it gets |
+| jLemmaGen (deployed plugin) | ~320,000 | HTTP-bound |
+| `opennlp_lemmatizer` | ~12,000 | POS tagger per token |
+
+The flat-lookup filters (dictionary, jLemmaGen) are so fast they hit the request ceiling — equal in
+practice. `opennlp_lemmatizer` is ~30× slower *even with HTTP overhead masking the others*; in the
+indexing pipeline (no per-doc HTTP) the gap widens toward the library ratio.
+
+> **Pitfall.** An *inline* filter in `_analyze` rebuilds the analyzer per request, so it re-loads the
+> dictionary/model every call — the 19 MB michmech dictionary cost ~340 ms/call that way. Always
+> run (and benchmark) through a configured index analyzer, where the filter loads once per shard.
 
 ## Choosing
 

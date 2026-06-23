@@ -79,7 +79,7 @@ OpenSearch (3.7.0):
 ```bash
 ./bin/opensearch-plugin install \
   https://github.com/radeno/opennlp-lemmatizer/releases/download/v0.2.0/opensearch-analysis-opennlp-lemmatizer-3.7.0.zip
-mkdir -p config/opennlp && cp cs-pos.bin cs-lemmas.bin config/opennlp/   # then restart the node
+./scripts/fetch-models.sh cs config/opennlp   # downloads the Czech models there, then restart
 ```
 
 Elasticsearch (9.4.2):
@@ -87,7 +87,7 @@ Elasticsearch (9.4.2):
 ```bash
 ./bin/elasticsearch-plugin install \
   https://github.com/radeno/opennlp-lemmatizer/releases/download/v0.2.0/elasticsearch-analysis-opennlp-lemmatizer-9.4.2.zip
-mkdir -p config/opennlp && cp cs-pos.bin cs-lemmas.bin config/opennlp/   # then restart the node
+./scripts/fetch-models.sh cs config/opennlp   # downloads the Czech models there, then restart
 ```
 
 Running a **different** node version? A plugin must match it exactly — build from source
@@ -96,13 +96,13 @@ by pushing a `v*` tag: CI builds both plugins and attaches the zips.
 
 ## Docker
 
-Bake the plugin and models into a custom image (multi-stage: builds the plugin for the exact node
-version, installs it, copies the models). See [examples/docker/](examples/docker/):
+Bake the plugin **and** its models into a custom image — the multi-stage build compiles the plugin
+for the exact node version and runs `fetch-models.sh` itself (choose languages with `LANGS`). See
+[examples/docker/](examples/docker/):
 
 ```bash
-./scripts/fetch-models.sh cs && ./scripts/fetch-models.sh sk
 docker build -f examples/docker/opensearch.Dockerfile \
-  --build-arg OPENSEARCH_VERSION=3.7.0 -t opensearch-opennlp:3.7.0 .
+  --build-arg OPENSEARCH_VERSION=3.7.0 --build-arg LANGS="cs sk" -t opensearch-opennlp:3.7.0 .
 ```
 
 ## Use

@@ -1,0 +1,7 @@
+.git
+**/target
+models
+experiments/udpipe/.native-build
+experiments/udpipe/native
+experiments/udpipe/lib
+.DS_Store
