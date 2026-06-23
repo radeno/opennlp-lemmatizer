@@ -1,0 +1,26 @@
+{
+  "settings": {
+    "index": {
+      "analysis": {
+        "filter": {
+          "sk_lemma_dict": {
+            "type": "dictionary_lemmatizer",
+            "dictionary": "sk-michmech.txt"
+          }
+        },
+        "analyzer": {
+          "sk_dictionary_lemmatizer": {
+            "type": "custom",
+            "tokenizer": "standard",
+            "filter": [ "sk_lemma_dict", "lowercase" ]
+          }
+        }
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "text": { "type": "text", "analyzer": "sk_dictionary_lemmatizer" }
+    }
+  }
+}

@@ -16,8 +16,11 @@ docker build -f examples/docker/elasticsearch.Dockerfile \
   --build-arg ELASTICSEARCH_VERSION=9.4.2 --build-arg LANGS="cs sk" -t elasticsearch-opennlp:9.4.2 .
 ```
 
-`LANGS` is passed straight to `fetch-models.sh`, so it accepts the official OpenNLP languages
-(`cs`, `sk`, …) and the dictionary source (`sk-michmech`). Run as usual:
+`LANGS` is passed straight to `fetch-models.sh`, so it accepts the official OpenNLP model languages
+(`cs`, `sk`, …) and the flat-dictionary sources (`cs-ud` for Czech, `sk-michmech` for Slovak). For
+example `LANGS="cs sk-michmech cs-ud"` bakes in the Czech models plus both flat dictionaries. (Note:
+`cs-ud` downloads ~450 MB of treebanks at build time, but only the resulting ~3.5 MB dictionary lands
+in the final image.) Run as usual:
 
 ```bash
 docker run -p 9200:9200 -e discovery.type=single-node opensearch-opennlp:3.7.0

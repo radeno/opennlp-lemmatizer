@@ -1,0 +1,26 @@
+{
+  "settings": {
+    "index": {
+      "analysis": {
+        "filter": {
+          "cs_lemma_dict": {
+            "type": "dictionary_lemmatizer",
+            "dictionary": "cs-ud.txt"
+          }
+        },
+        "analyzer": {
+          "cs_dictionary_lemmatizer": {
+            "type": "custom",
+            "tokenizer": "standard",
+            "filter": [ "cs_lemma_dict", "lowercase" ]
+          }
+        }
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "text": { "type": "text", "analyzer": "cs_dictionary_lemmatizer" }
+    }
+  }
+}

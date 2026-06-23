@@ -8,16 +8,19 @@ Engines:
 - **jLemmaGen** — context-free RDR rules (`.lem`); the `analysis-lemmagen` plugin. Fast, but mangles
   capitalized words and can't disambiguate by part of speech.
 - **`opennlp_lemmatizer`** (this repo) — POS-aware OpenNLP; Apache models from Universal Dependencies.
-- **`dictionary_lemmatizer`** (this repo) — flat `form → lemma` lookup, e.g. from
-  [michmech/lemmatization-lists](https://github.com/michmech/lemmatization-lists) (ODbL). Fast and
-  POS-free; homonyms are resolved to the largest-paradigm lemma.
+- **`dictionary_lemmatizer`** (this repo) — flat `form → lemma` lookup. Fast and POS-free; a form
+  with several lemmas is resolved to its most likely reading. Two dictionary sources, by language:
+  **Slovak** from [michmech/lemmatization-lists](https://github.com/michmech/lemmatization-lists)
+  (ODbL, 847k forms), **Czech and other languages** built from the same
+  [Universal Dependencies](https://universaldependencies.org/) treebanks the OpenNLP models train on
+  (`-ud`, gold lemmas). Rule of thumb: **Slovak → michmech, others → UD.**
 - **UDPipe** — full morphological tagger (ÚFAL), native C++/JNI. See [`../experiments/udpipe/`](../experiments/udpipe/).
 
 ## Verified: `dictionary_lemmatizer` vs the *deployed* jLemmaGen plugin
 
 The deployed `analysis-lemmagen` plugin (its own `cs.lem` / `sk.lem`) vs this repo's
-`dictionary_lemmatizer` (michmech) — run on real nodes, **identical on OpenSearch 3.7.0 and
-Elasticsearch 9.4.2**:
+`dictionary_lemmatizer` (Slovak from michmech, Czech from UD) — run on real nodes, **identical on
+OpenSearch 3.7.0 and Elasticsearch 9.4.2**:
 
 Slovak — michmech `sk` is large (847k forms):
 
@@ -28,27 +31,29 @@ Slovak — michmech `sk` is large (847k forms):
 
 → the dictionary wins on Slovak (fixes `je`, `Boli`, `lese`); only `a → as` is wrong.
 
-Czech — michmech `cs` is thin (~35k forms):
+Czech — `dictionary_lemmatizer` with the UD-derived `cs-ud.txt` (185k gold forms):
 
-| sentence | deployed jLemmaGen | `dictionary_lemmatizer` |
+| sentence | deployed jLemmaGen | `dictionary_lemmatizer` (`cs-ud`) |
 |---|---|---|
 | Praha **je** krásné město | Praha **on** ✗ krásný město | Praha **být** ✓ krásný město |
-| **Tři** ženy nesly **tři** jablka | **Tř** ✗ žena nést tři jablka | **třít** ✗ žena nést **třít** ✗ jablka |
+| **Tři** ženy nesly **tři** jablka | **Tř** ✗ žena nést tři jablka | **tři** ✓ žena nést **tři** ✓ jablko |
 
-→ mixed: `je → být` is fixed, but the thin Czech list mangles `tři → třít`. **Coverage is everything.**
+→ UD wins cleanly: gold lemmas give `je → být`, `tři → tři` and `jablka → jablko` where jLemmaGen
+fails. Czech uses UD; Slovak uses michmech.
 
 ## Quality vs OpenNLP / UDPipe (discriminating tokens)
 
 | token | jLemmaGen | dictionary | `opennlp_lemmatizer` | UDPipe |
 |---|---|---|---|---|
 | cs `je` (is) | `on` ✗ | `být` ✓ | `být` ✓ | `být` ✓ |
-| cs `Tři` (three) | `Tř` ✗ | `třít` ✗ | `tři` ✓ | `tři` ✓ |
+| cs `Tři` (three) | `Tř` ✗ | `tři` ✓ | `tři` ✓ | `tři` ✓ |
 | sk `je` (is) | `jesť` ✗ | `byť` ✓ | `byť` ✓ | `byť` ✓ |
 | sk `lese` (forest) | `lesa` ✗ | `les` ✓ | `les` ✓ | `les` ✓ |
 | sk `Bratislava` | `Bratislava` ✓ | `Bratislava` ✓ | `bratislav` ✗ | `bratislava` ✓ |
 
-Only POS (opennlp / UDPipe) resolves homonyms *in context*; a flat dictionary bakes in one reading.
-UDPipe (full morphology) is the highest quality but native and CC BY-NC-SA.
+The `dictionary` column uses the recommended per-language source — `cs-ud` for Czech, `sk-michmech`
+for Slovak. Only POS (opennlp / UDPipe) resolves homonyms *in context*; a flat dictionary bakes in
+one reading. UDPipe (full morphology) is the highest quality but native and CC BY-NC-SA.
 
 ## Throughput
 
@@ -83,7 +88,7 @@ indexing pipeline (no per-doc HTTP) the gap widens toward the library ratio.
 ## Choosing
 
 - **Speed-first, no native, decent quality:** `dictionary_lemmatizer` with a well-covered dictionary
-  — beats jLemmaGen at the same speed (great for Slovak via michmech; thin for Czech).
+  — beats jLemmaGen at the same speed (Slovak via michmech, Czech via UD).
 - **Best pure-Java quality, POS-aware:** `opennlp_lemmatizer` (Czech especially).
 - **Highest quality, can accept native lib + non-commercial models:** UDPipe.
 - **Hybrid search (k-NN + BM25):** embeddings absorb most morphology, so fast + decent (dictionary)

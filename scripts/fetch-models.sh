@@ -5,15 +5,20 @@
 # Usage:
 #   ./scripts/fetch-models.sh <lang>            # official Apache OpenNLP POS + lemmatizer models (.bin)
 #   ./scripts/fetch-models.sh <lang>-michmech   # richer flat word->lemma dictionary (ODbL)
+#   ./scripts/fetch-models.sh <lang>-ud         # flat word->lemma dictionary from Universal Dependencies
 #   ./scripts/fetch-models.sh <arg> [dest_dir] [opennlp_version]
 #
 # Examples:
 #   ./scripts/fetch-models.sh sk            -> models/sk-pos.bin, models/sk-lemmas.bin   (Apache OpenNLP)
 #   ./scripts/fetch-models.sh sk-michmech   -> models/sk-michmech.txt                    (michmech, ODbL)
+#   ./scripts/fetch-models.sh cs-ud         -> models/cs-ud.txt                          (Universal Dependencies)
 #
-# The '-michmech' source is michmech/lemmatization-lists (Open Database License): much larger
-# coverage than the small official OpenNLP models, but a flat dictionary with no part-of-speech
-# (so it cannot disambiguate homonyms). Used by the dictionary-lookup lemmatizer.
+# Both '-michmech' and '-ud' build a flat form->lemma dictionary for the dictionary_lemmatizer filter
+# (no part-of-speech, so they cannot disambiguate homonyms in context):
+#   '-michmech' = michmech/lemmatization-lists (ODbL); largest coverage, e.g. Slovak (847k forms).
+#   '-ud'       = the SAME Universal Dependencies treebanks the OpenNLP models are trained from, with
+#                 gold (human-annotated) lemmas. Best for Czech (huge PDT treebank). Per-treebank
+#                 license (Czech PDT is CC BY-NC-SA).
 #
 set -euo pipefail
 
@@ -59,6 +64,63 @@ PY
   echo "  -> ${out}  ($(wc -l < "${out}" | tr -d ' ') forms, $(du -h "${out}" | cut -f1))"
   echo "  format: <form>\\t<lemma>. Open Database License (ODbL) — credit michmech/lemmatization-lists,"
   echo "  share-alike if you redistribute this derived dictionary."
+  exit 0
+fi
+
+# --- flat dictionary derived from a Universal Dependencies treebank (gold lemmas) ---
+# UD treebanks are the SAME source the OpenNLP models are trained from, in raw CoNLL-U form: every
+# token carries a human-annotated FORM / LEMMA / UPOS. We aggregate them into the form<TAB>lemma
+# lookup the dictionary_lemmatizer consumes. A form with several lemmas (homonym) is resolved to its
+# most frequent lemma in the corpus — e.g. Czech `je` -> `být` (to be). Gold lemmas keep it accurate
+# (e.g. cs `tři` -> `tři`, not `třít`), but coverage is bounded by the treebank's vocabulary
+# (Czech PDT is huge; the Slovak treebank is much smaller).
+if [[ "$ARG" == *-ud ]]; then
+  command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 is required to build the UD dictionary" >&2; exit 1; }
+  lang="${ARG%-ud}"
+  case "$lang" in
+    cs) repo="UD_Czech-PDT" ;;
+    sk) repo="UD_Slovak-SNK" ;;
+    *)  echo "ERROR: no Universal Dependencies treebank mapped for '${lang}' (known: cs, sk)" >&2; exit 1 ;;
+  esac
+  out="${DEST}/${lang}-ud.txt"
+  dtmp="$(mktemp -d)"; trap 'rm -rf "$dtmp"' EXIT
+  api="https://api.github.com/repos/UniversalDependencies/${repo}/contents"
+  echo "listing CoNLL-U files in UniversalDependencies/${repo} ..."
+  urls="$(curl -fsSL "$api" | python3 -c 'import sys, json; [print(e["download_url"]) for e in json.load(sys.stdin) if e["name"].endswith(".conllu")]')"
+  [ -n "$urls" ] || { echo "ERROR: no .conllu files found in ${repo}" >&2; exit 1; }
+  i=0
+  for u in $urls; do
+    i=$((i + 1))
+    echo "  downloading $(basename "$u")"
+    curl -fsSL -o "${dtmp}/${i}.conllu" "$u"
+  done
+  echo "aggregating form->lemma (most frequent gold lemma per form) ..."
+  python3 - "${dtmp}"/*.conllu "${out}" <<'PY'
+import sys, collections
+out = sys.argv[-1]
+files = sys.argv[1:-1]
+count = collections.defaultdict(collections.Counter)   # form(lowercased) -> Counter(lemma)
+for path in files:
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            if not line.strip() or line[0] == "#":
+                continue
+            c = line.rstrip("\n").split("\t")
+            if len(c) < 4:
+                continue
+            tid, form, lemma, upos = c[0], c[1], c[2], c[3]
+            if "-" in tid or "." in tid:               # skip multiword ranges & empty nodes
+                continue
+            if not form or not lemma or form == "_" or lemma == "_" or upos == "PUNCT":
+                continue
+            count[form.lower()][lemma] += 1
+with open(out, "w", encoding="utf-8") as g:
+    for form in sorted(count):
+        g.write(form + "\t" + count[form].most_common(1)[0][0] + "\n")
+PY
+  echo "  -> ${out}  ($(wc -l < "${out}" | tr -d ' ') forms, $(du -h "${out}" | cut -f1))"
+  echo "  format: <form>\\t<lemma>, gold lemmas from Universal Dependencies (${repo})."
+  echo "  License is per-treebank — Czech PDT is CC BY-NC-SA; verify before commercial use."
   exit 0
 fi
 
