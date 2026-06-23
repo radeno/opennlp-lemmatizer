@@ -78,7 +78,7 @@ OpenSearch (3.7.0):
 
 ```bash
 ./bin/opensearch-plugin install \
-  https://github.com/radeno/opennlp-lemmatizer/releases/download/v0.1.0/opensearch-analysis-opennlp-lemmatizer-3.7.0.zip
+  https://github.com/radeno/opennlp-lemmatizer/releases/download/v0.2.0/opensearch-analysis-opennlp-lemmatizer-3.7.0.zip
 mkdir -p config/opennlp && cp cs-pos.bin cs-lemmas.bin config/opennlp/   # then restart the node
 ```
 
@@ -86,7 +86,7 @@ Elasticsearch (9.4.2):
 
 ```bash
 ./bin/elasticsearch-plugin install \
-  https://github.com/radeno/opennlp-lemmatizer/releases/download/v0.1.0/elasticsearch-analysis-opennlp-lemmatizer-9.4.2.zip
+  https://github.com/radeno/opennlp-lemmatizer/releases/download/v0.2.0/elasticsearch-analysis-opennlp-lemmatizer-9.4.2.zip
 mkdir -p config/opennlp && cp cs-pos.bin cs-lemmas.bin config/opennlp/   # then restart the node
 ```
 
