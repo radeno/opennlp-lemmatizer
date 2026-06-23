@@ -136,7 +136,8 @@ Full index-analyzer settings per language: [examples/cs-analyzer.json](examples/
 [examples/sk-analyzer.json](examples/sk-analyzer.json).
 
 > POS tagging runs over the token stream as one sentence, so the filter is best placed after a
-> sentence-/field-sized tokenizer. OpenNLP lemmas are lowercased (UD convention).
+> sentence-/field-sized tokenizer. OpenNLP lemmas are lowercased (UD convention), and each token's
+> POS tag is exposed in the `type` attribute (e.g. `NNP` for a proper noun) for downstream filters.
 
 ### Dictionary lemmatizer (fast, POS-free)
 
@@ -187,19 +188,8 @@ semantic vectors already absorb most morphology); OpenNLP when lexical quality m
 lower throughput is acceptable. Full data — including a flat-dictionary baseline and the
 higher-quality (but native) UDPipe — is in [docs/COMPARISON.md](docs/COMPARISON.md).
 
-<details>
-<summary>📊 <b>Throughput numbers</b> (click to expand)</summary>
-
-**Library microbenchmark** (`core`, steady state, no HTTP) — pure per-token cost:
-
-| engine | tokens/sec |
-|---|---:|
-| dictionary / jLemmaGen (flat lookup) | ~5,000,000 |
-| `opennlp_lemmatizer` (POS per token) | ~3,300 |
-| UDPipe (native) | ~10,000–200,000 |
-
-**Real node** (OpenSearch 3.7, `_analyze` through a configured index analyzer so the filter loads
-once), ~900-token request:
+**Throughput (real node)** — OpenSearch 3.7, `_analyze` through a configured index analyzer so the
+filter loads once, ~900-token request:
 
 | filter | tokens/sec |
 |---|---:|
@@ -208,9 +198,26 @@ once), ~900-token request:
 | jLemmaGen (deployed) | ~320,000 |
 | `opennlp_lemmatizer` | ~12,000 |
 
-On a node the flat-lookup filters are HTTP-bound (equal in practice); `opennlp_lemmatizer` is the slow
-one. Beware: an *inline* `_analyze` filter re-loads the dictionary/model per request — measure (and
-run) through an index analyzer. Full notes in [docs/COMPARISON.md](docs/COMPARISON.md).
+The flat-lookup filters (dictionary, jLemmaGen) are HTTP-bound — equal in practice;
+`opennlp_lemmatizer` is the slow one. **But the slowness buys quality the others can't match:** it
+is the only filter that disambiguates by **part of speech in context** (a flat dictionary or rule
+set bakes in one lemma per word form), and it also writes each token's POS tag into the `type`
+attribute — e.g. `NNP` (proper noun), `NN` (noun), `JJ` (adjective) — which downstream token filters
+and queries can use. The flat-lookup filters leave `type` as `word`.
+
+<details>
+<summary>📊 <b>Library microbenchmark numbers</b> (click to expand)</summary>
+
+Steady state, no HTTP (`core` module) — pure per-token cost, *not* a node measurement:
+
+| engine | tokens/sec |
+|---|---:|
+| dictionary / jLemmaGen (flat lookup) | ~5,000,000 |
+| `opennlp_lemmatizer` (POS per token) | ~3,300 |
+| UDPipe (native) | ~10,000–200,000 |
+
+> An *inline* `_analyze` filter re-loads the dictionary/model per request — always measure (and run)
+> through an index analyzer, as in the real-node table above.
 
 </details>
 
