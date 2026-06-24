@@ -59,17 +59,25 @@ if [[ "$ARG" == *-mte-pos ]]; then
 import sys, collections
 src, out = sys.argv[1], sys.argv[2]
 def penn(msd):
-    c = msd[0]
-    if c == 'N': return 'NN'
-    if c == 'V': return 'MD' if msd[:2] in ('Va', 'Vc') else 'VB'  # auxiliary/copula 'byť' -> MD
-    if c == 'A': return 'JJ'
-    if c == 'P': return 'PRP'
-    if c == 'R' or c == 'Q': return 'RB'
-    if c == 'S': return 'IN'
-    if c == 'C': return 'IN' if msd[:2] == 'Cs' else 'CC'           # subordinating -> IN, coordinating -> CC
-    if c == 'M': return 'CD'
-    if c == 'I': return 'UH'
-    return None                                                    # skip residual/abbrev (X, Y, ...)
+    # The MULTEXT-East MSD is positional (spec: clarinsi/mte-msd, tables/msd-canon-sk.tbl): char 0
+    # is the category, char 1 the type. We map the category onto the Penn-style tagset the OpenNLP
+    # Slovak POS model actually emits (NN VB MD JJ CD RB IN CC PRP UH); the two sub-distinctions the
+    # model honours read char 1. Categories per the spec: N Noun, V Verb, A Adjective, P Pronoun,
+    # R Adverb, S Adposition, C Conjunction, M Numeral, Q Particle, I Interjection, X Residual,
+    # Y Abbreviation, Z Punctuation.
+    cat = msd[0]
+    typ = msd[1] if len(msd) > 1 else ''
+    if cat == 'N': return 'NN'                              # common + proper noun
+    if cat == 'V': return 'MD' if typ in ('a', 'c') else 'VB'   # auxiliary/copula 'byť' -> MD; main/modal -> VB
+    if cat == 'A': return 'JJ'                              # adjective (model emits JJ for every degree)
+    if cat == 'P': return 'PRP'                             # pronoun (all types)
+    if cat == 'R': return 'RB'                              # adverb
+    if cat == 'Q': return 'RB'                              # particle (model tags adverb-like)
+    if cat == 'S': return 'IN'                              # adposition (preposition)
+    if cat == 'C': return 'IN' if typ == 's' else 'CC'      # subordinating -> IN, coordinating -> CC
+    if cat == 'M': return 'CD'                              # numeral (cardinal/ordinal/...)
+    if cat == 'I': return 'UH'                              # interjection
+    return None                                            # X residual, Y abbreviation, Z punctuation -> model
 fp = collections.defaultdict(set)   # (form_lower, POS) -> {lemma}
 with open(src, encoding="utf-8") as f:
     for line in f:
