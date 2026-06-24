@@ -9,8 +9,9 @@ Works with any language Apache OpenNLP ships POS + lemmatizer models for (35+ la
 including Czech and Slovak. Useful for the lexical (BM25) side of search, alongside or instead
 of stemming — especially for highly inflected Slavic languages.
 
-It also ships a faster, POS-free **`dictionary_lemmatizer`** (flat `form → lemma` lookup) for when
-raw speed matters more than disambiguation — see [Use](#use).
+It also ships a **`pos_dictionary_lemmatizer`** (POS-aware dictionary, model fallback, compact FST) for
+precise lemmas on known words, and a faster, POS-free **`dictionary_lemmatizer`** (flat `form → lemma`
+lookup) for when raw speed matters more than disambiguation — see [Use](#use).
 
 > **Verified end-to-end** on real nodes: OpenSearch **3.7.0** and Elasticsearch **9.4.2**
 > (`_analyze "Děkuji že jsi přišel"` → `děkovat že být přijít` on both).
@@ -62,19 +63,20 @@ Place them in your node's `config/opennlp/` directory.
 > `fetch-models.sh` pulls **models 1.3.0** (trained with OpenNLP 2.5.4). Keep the model version
 > aligned with the engine — a major mismatch can fail to load. (Lucene 10.4.0, JDK 25.)
 
-For a **larger, POS-free** dictionary, fetch a flat `form → lemma` list for the
-`dictionary_lemmatizer` filter. Two sources:
+For a **larger dictionary**, fetch one of these (all need `python3`; `-mte*` also need `gzip`):
 
 ```bash
-./scripts/fetch-models.sh sk-mte   # -> models/sk-mte.txt   (Slovak, 922k forms, MULTEXT-East, CC BY-SA)
-./scripts/fetch-models.sh cs-ud    # -> models/cs-ud.txt    (Czech, 185k forms, Universal Dependencies)
+./scripts/fetch-models.sh sk-mte-pos  # -> models/sk-mte-pos.txt  (Slovak, 926k form/POS/lemma, MULTEXT-East)
+./scripts/fetch-models.sh sk-mte      # -> models/sk-mte.txt      (Slovak, 922k form→lemma, MULTEXT-East)
+./scripts/fetch-models.sh cs-ud       # -> models/cs-ud.txt       (Czech, 185k form→lemma, Universal Dependencies)
 ```
 
-`-mte` builds the dictionary from the [MULTEXT-East](http://nl.ijs.si/ME/) morphosyntactic lexicons
+`-mte-pos` is the **POS-aware** `form/POS/lemma` dictionary for `pos_dictionary_lemmatizer`; `-mte`
+and `-ud` are **flat** `form → lemma` lists for `dictionary_lemmatizer`. `-mte*` build from the
+[MULTEXT-East](http://nl.ijs.si/ME/) morphosyntactic lexicons
 ([CLARIN.SI "free lexicons 4.0"](https://www.clarin.si/repository/xmlui/handle/11356/1041),
 **CC BY-SA 4.0 — commercial use OK**) — the authoritative academic source the popular michmech lists
-were themselves derived from. Widest coverage (Slovak 922k forms), and it carries fine-grained part
-of speech that the POS-aware path can use. `-ud` builds it from the same
+were themselves derived from. Widest coverage (Slovak ~926k entries). `-ud` builds from the same
 [Universal Dependencies](https://universaldependencies.org/) treebanks the OpenNLP models are trained
 on (gold, human-annotated lemmas) — best where the treebank is large, like Czech. MTE covers
 `bg cs en et fr hu ro sk sl uk`.
@@ -117,13 +119,14 @@ docker build -f examples/docker/opensearch.Dockerfile \
 
 ## Use
 
-This plugin ships **two** lemmatizer filters. Choose by your quality/speed trade-off; choose the
+This plugin ships **three** lemmatizer filters. Choose by your quality/speed trade-off; choose the
 **language** simply by which model/dictionary file you name in the settings (the plugin itself is
 language-neutral):
 
 | filter | pick it when | required settings → files (per language) |
 |---|---|---|
-| `opennlp_lemmatizer` | best quality — POS-aware, disambiguates homonyms in context, writes the POS tag to `type` | `pos_model` + `lemmatizer_model` → e.g. `cs-pos.bin` + `cs-lemmas.bin` |
+| `opennlp_lemmatizer` | best generalisation — POS-aware MaxEnt model, disambiguates homonyms in context, lemmatises words it has never seen, writes the POS tag to `type` | `pos_model` + `lemmatizer_model` → e.g. `cs-pos.bin` + `cs-lemmas.bin` |
+| `pos_dictionary_lemmatizer` | best precision on known words — a POS-aware `form/POS/lemma` dictionary consulted first, the MaxEnt model fills the gaps | `pos_model` + `lemmatizer_model` + `dictionary` → e.g. `sk-pos.bin` + `sk-lemmas.bin` + `sk-mte-pos.txt` |
 | `dictionary_lemmatizer` | max speed — flat `form → lemma` lookup, no POS | `dictionary` → e.g. `sk-mte.txt` (Slovak) or `cs-ud.txt` (Czech) |
 
 Ready-made analyzer configs for both filters, per language, are in [examples/](examples/).
@@ -209,6 +212,34 @@ Both verified on real nodes (**OpenSearch 3.7.0** and **Elasticsearch 9.4.2**, i
 in context the way `opennlp_lemmatizer` does, and ranks below it on quality. MTE dictionaries are
 [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) (attribution + share-alike,
 **commercial use OK**); UD-derived dictionaries follow their treebank's license (Czech PDT is CC BY-NC-SA).
+
+### POS-aware dictionary: `pos_dictionary_lemmatizer`
+
+The third filter is the precise middle ground: it runs the OpenNLP POS tagger, then consults a
+**POS-aware `form/POS/lemma` dictionary first** and only falls back to the MaxEnt lemmatizer model for
+`(word, POS)` pairs the dictionary doesn't cover. So known words get the dictionary's exact lemma
+(disambiguated by part of speech — `je → byť` as a copula vs `je → jesť` as a verb), and everything
+else still gets a model lemma. Required settings: `pos_model`, `lemmatizer_model`, and `dictionary`
+(a `form<TAB>POS<TAB>lemma` file; fetch with **`-mte-pos`**, see [Models](#models)).
+
+```bash
+curl -XPOST localhost:9200/_analyze -H 'Content-Type: application/json' -d '{
+  "tokenizer": "whitespace",
+  "filter": [ "lowercase", { "type": "pos_dictionary_lemmatizer",
+              "pos_model": "sk-pos.bin", "lemmatizer_model": "sk-lemmas.bin", "dictionary": "sk-mte-pos.txt" } ],
+  "text": "V Bratislave je hrad a tri lipy"
+}'
+# tokens: v  Bratislava  byť  hrad  a  tri  lipa
+```
+
+> **Light, not heavy.** The dictionary is loaded into a compact **Lucene FST** — ~1.5 MB on heap for
+> the ~926k-entry Slovak dictionary (vs ~268 MB for a plain hash map), smaller than the models
+> themselves, with full coverage and identical lookups (verified entry-for-entry across all 926k).
+>
+> **Case-sensitive — chain `lowercase`.** Like `dictionary_lemmatizer`, the filter never folds case;
+> put a `lowercase` filter ahead of it for case-insensitive matching. The stored lemma keeps its case,
+> so proper nouns MULTEXT-East knows stay capitalised (`Bratislave → Bratislava`, `Dunaji → Dunaj`).
+> Words MTE only knows as common nouns, or doesn't know, fall back to the (lower-cased) model lemma.
 
 ## OpenNLP vs jLemmaGen
 

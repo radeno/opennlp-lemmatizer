@@ -16,6 +16,7 @@ public class OpenSearchOpenNlpPlugin extends Plugin implements AnalysisPlugin {
     public Map<String, AnalysisProvider<TokenFilterFactory>> getTokenFilters() {
         return Map.of(
             "opennlp_lemmatizer", requiresAnalysisSettings(OpenNlpLemmatizerTokenFilterFactory::new),
-            "dictionary_lemmatizer", requiresAnalysisSettings(DictionaryLemmatizerTokenFilterFactory::new));
+            "dictionary_lemmatizer", requiresAnalysisSettings(DictionaryLemmatizerTokenFilterFactory::new),
+            "pos_dictionary_lemmatizer", requiresAnalysisSettings(PosDictionaryLemmatizerTokenFilterFactory::new));
     }
 }

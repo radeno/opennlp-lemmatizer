@@ -7,6 +7,7 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import opennlp.tools.lemmatizer.Lemmatizer;
 import opennlp.tools.lemmatizer.LemmatizerModel;
 import opennlp.tools.postag.POSModel;
 
@@ -38,15 +39,18 @@ public final class OpenNlpLemmatizer {
 
     private final POSModel posModel;
     private final LemmatizerModel lemmatizerModel;
+    private final Lemmatizer lemmaDictionary; // nullable; shared, consulted before the model
 
-    private OpenNlpLemmatizer(POSModel posModel, LemmatizerModel lemmatizerModel) {
+    private OpenNlpLemmatizer(POSModel posModel, LemmatizerModel lemmatizerModel,
+                              Lemmatizer lemmaDictionary) {
         this.posModel = posModel;
         this.lemmatizerModel = lemmatizerModel;
+        this.lemmaDictionary = lemmaDictionary;
     }
 
     /**
-     * Resolve and load the models from {@code <configDir>/opennlp/}, validating the settings.
-     * Used by the OpenSearch and Elasticsearch token-filter factories.
+     * Pure model-only OpenNLP lemmatizer (POS tagger + MaxEnt lemmatizer model), loaded from
+     * {@code <configDir>/opennlp/}. Used by the {@code opennlp_lemmatizer} filter factory.
      *
      * @param filterName the token-filter name, used only in the validation error message
      * @throws IllegalArgumentException if either model file name is missing/blank
@@ -54,31 +58,51 @@ public final class OpenNlpLemmatizer {
      */
     public static OpenNlpLemmatizer fromConfig(String filterName, Path configDir,
                                                String posModelFile, String lemmatizerModelFile) {
+        return fromConfig(filterName, configDir, posModelFile, lemmatizerModelFile, null);
+    }
+
+    /**
+     * As {@link #fromConfig(String, Path, String, String)} plus a {@code form<TAB>POS<TAB>lemma}
+     * dictionary consulted before the model. Used by the {@code pos_dictionary_lemmatizer} factory.
+     */
+    public static OpenNlpLemmatizer fromConfig(String filterName, Path configDir, String posModelFile,
+                                               String lemmatizerModelFile, String lemmatizerDictFile) {
         if (isBlank(posModelFile) || isBlank(lemmatizerModelFile)) {
             throw new IllegalArgumentException("[" + filterName + "] token filter requires both '"
                 + POS_MODEL_SETTING + "' and '" + LEMMATIZER_MODEL_SETTING + "' settings");
         }
         Path dir = configDir.resolve(MODELS_DIRECTORY);
-        return fromModels(dir.resolve(posModelFile), dir.resolve(lemmatizerModelFile));
+        Path dictPath = isBlank(lemmatizerDictFile) ? null : dir.resolve(lemmatizerDictFile);
+        return fromModels(dir.resolve(posModelFile), dir.resolve(lemmatizerModelFile), dictPath);
     }
 
-    /** Load directly from the two model file paths. */
+    /** Load directly from the two model file paths (no lemmatizer dictionary). */
     public static OpenNlpLemmatizer fromModels(Path posModelPath, Path lemmatizerModelPath) {
+        return fromModels(posModelPath, lemmatizerModelPath, null);
+    }
+
+    /** As {@link #fromModels(Path, Path)} with an optional {@code form<TAB>POS<TAB>lemma} dictionary. */
+    public static OpenNlpLemmatizer fromModels(Path posModelPath, Path lemmatizerModelPath, Path dictPath) {
         return new OpenNlpLemmatizer(
             load(posModelPath, POSModel::new, "POS"),
-            load(lemmatizerModelPath, LemmatizerModel::new, "lemmatizer"));
+            load(lemmatizerModelPath, LemmatizerModel::new, "lemmatizer"),
+            dictPath == null ? null : FstPosDictionaryLemmatizer.fromFile(dictPath));
     }
 
     /** Wrap {@code input} with the OpenNLP POS tagger followed by the lemmatizer. */
     public TokenStream apply(TokenStream input) {
-        var posOp = new NLPPOSTaggerOp(posModel);
+        var tagged = new OpenNLPPOSFilter(input, new NLPPOSTaggerOp(posModel));
+        if (lemmaDictionary != null) {
+            // POS-aware: shared dictionary first, MaxEnt model fallback
+            return new OpenNlpPosLemmatizerFilter(tagged, lemmaDictionary, lemmatizerModel);
+        }
         NLPLemmatizerOp lemmaOp;
         try {
             lemmaOp = new NLPLemmatizerOp(null, lemmatizerModel); // null dictionary -> model-only
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to initialize OpenNLP lemmatizer", e);
         }
-        return new OpenNLPLemmatizerFilter(new OpenNLPPOSFilter(input, posOp), lemmaOp);
+        return new OpenNLPLemmatizerFilter(tagged, lemmaOp);
     }
 
     private static boolean isBlank(String s) {

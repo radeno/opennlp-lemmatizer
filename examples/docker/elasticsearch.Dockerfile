@@ -6,7 +6,7 @@
 #   docker build -f examples/docker/elasticsearch.Dockerfile \
 #     --build-arg ELASTICSEARCH_VERSION=9.4.2 --build-arg LANGS="cs sk" -t elasticsearch-opennlp:9.4.2 .
 #
-# LANGS is a space-separated list passed to fetch-models.sh (e.g. "cs sk", or "sk-mte").
+# LANGS is a space-separated list passed to fetch-models.sh (e.g. "cs sk", "sk-mte", or "sk-mte-pos").
 # The plugin's elasticsearch.version must match the base image exactly — the build-arg handles both.
 #
 # syntax=docker/dockerfile:1
@@ -14,7 +14,8 @@ ARG ELASTICSEARCH_VERSION=9.4.2
 
 # --- stage 1: build the plugin for this exact version + fetch the models ---
 FROM maven:3.9-eclipse-temurin-25 AS build
-RUN apt-get update && apt-get install -y --no-install-recommends curl unzip \
+# curl/unzip for the .bin models; python3/gzip for the MULTEXT-East/UD dictionary targets (-mte*, -ud)
+RUN apt-get update && apt-get install -y --no-install-recommends curl unzip python3 gzip \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 COPY . .

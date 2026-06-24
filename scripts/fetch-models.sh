@@ -5,13 +5,19 @@
 # Usage:
 #   ./scripts/fetch-models.sh <lang>            # official Apache OpenNLP POS + lemmatizer models (.bin)
 #   ./scripts/fetch-models.sh <lang>-mte        # flat word->lemma dictionary from MULTEXT-East
+#   ./scripts/fetch-models.sh <lang>-mte-pos    # POS-aware form/POS/lemma dictionary from MULTEXT-East
 #   ./scripts/fetch-models.sh <lang>-ud         # flat word->lemma dictionary from Universal Dependencies
 #   ./scripts/fetch-models.sh <arg> [dest_dir] [opennlp_version]
 #
 # Examples:
 #   ./scripts/fetch-models.sh sk            -> models/sk-pos.bin, models/sk-lemmas.bin   (Apache OpenNLP)
 #   ./scripts/fetch-models.sh sk-mte        -> models/sk-mte.txt                         (MULTEXT-East)
+#   ./scripts/fetch-models.sh sk-mte-pos    -> models/sk-mte-pos.txt                     (MULTEXT-East, POS)
 #   ./scripts/fetch-models.sh cs-ud         -> models/cs-ud.txt                          (Universal Dependencies)
+#
+# '-mte-pos' builds the POS-aware form<TAB>POS<TAB>lemma dictionary for the pos_dictionary_lemmatizer
+# filter (the OpenNLP POS tagger disambiguates homonyms, e.g. sk `je` -> `byť` as copula vs `jesť` as
+# verb). It is loaded into a compact Lucene FST (~1.5 MB for ~926k Slovak entries).
 #
 # Both '-mte' and '-ud' build a flat form->lemma dictionary for the dictionary_lemmatizer filter
 # (no part-of-speech, so they cannot disambiguate homonyms in context):
@@ -26,6 +32,73 @@ set -euo pipefail
 ARG="${1:?usage: fetch-models.sh <lang> | <lang>-mte | <lang>-ud [dest_dir]}"
 DEST="${2:-models}"
 mkdir -p "$DEST"
+
+# --- POS-aware form/POS/lemma dictionary from the MULTEXT-East lexicons (CC BY-SA 4.0) ---
+# Same source as '-mte', but keeps part of speech so the pos_dictionary_lemmatizer can disambiguate
+# homonyms with the OpenNLP POS tagger. We map the MULTEXT-East MSD (morphosyntactic descriptor) to
+# the Penn-style tagset the OpenNLP Slovak POS model emits (NN/VB/MD/JJ/CD/RB/IN/CC/PRP/UH), then keep
+# one lemma per (form, POS): if a (form, POS) is itself still ambiguous (several lemmas) it is dropped
+# so the MaxEnt model handles it rather than guessing. Form keys are lower-cased (chain a `lowercase`
+# filter; the filter itself is case-sensitive) while the lemma keeps its case (proper nouns stay
+# capitalised, e.g. `dunaji`->`Dunaj`).
+if [[ "$ARG" == *-mte-pos ]]; then
+  command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 is required to build the MTE dictionary" >&2; exit 1; }
+  command -v gunzip  >/dev/null 2>&1 || { echo "ERROR: gunzip is required to build the MTE dictionary" >&2; exit 1; }
+  lang="${ARG%-mte-pos}"
+  out="${DEST}/${lang}-mte-pos.txt"
+  dtmp="$(mktemp -d)"; trap 'rm -rf "$dtmp"' EXIT
+  handle="https://www.clarin.si/repository/xmlui/handle/11356/1041"
+  echo "locating MULTEXT-East '${lang}' lexicon in ${handle} ..."
+  href="$(curl -fsSL "$handle" | grep -oE "href=\"[^\"]*wfl-${lang}\.txt[^\"]*\"" | head -1 | sed -E 's/^href="//; s/"$//; s/&amp;/\&/g')"
+  [ -n "$href" ] || { echo "ERROR: no MULTEXT-East lexicon for '${lang}' (free set: bg cs en et fr hu ro sk sl uk)" >&2; exit 1; }
+  url="https://www.clarin.si${href}"
+  echo "downloading (CC BY-SA 4.0): ${url}"
+  curl -fsSL "$url" | gunzip -c > "${dtmp}/wfl.txt"
+  echo "mapping MSD -> Penn POS and collapsing to one lemma per (form, POS) ..."
+  python3 - "${dtmp}/wfl.txt" "${out}" <<'PY'
+import sys, collections
+src, out = sys.argv[1], sys.argv[2]
+def penn(msd):
+    c = msd[0]
+    if c == 'N': return 'NN'
+    if c == 'V': return 'MD' if msd[:2] in ('Va', 'Vc') else 'VB'  # auxiliary/copula 'byť' -> MD
+    if c == 'A': return 'JJ'
+    if c == 'P': return 'PRP'
+    if c == 'R' or c == 'Q': return 'RB'
+    if c == 'S': return 'IN'
+    if c == 'C': return 'IN' if msd[:2] == 'Cs' else 'CC'           # subordinating -> IN, coordinating -> CC
+    if c == 'M': return 'CD'
+    if c == 'I': return 'UH'
+    return None                                                    # skip residual/abbrev (X, Y, ...)
+fp = collections.defaultdict(set)   # (form_lower, POS) -> {lemma}
+with open(src, encoding="utf-8") as f:
+    for line in f:
+        p = line.rstrip("\n").split("\t")
+        if len(p) < 3:
+            continue
+        form, lemma, msd = p[0], p[1], p[2]
+        if not form or not lemma or not msd:
+            continue
+        pos = penn(msd)
+        if pos is None:
+            continue
+        fp[(form.lower(), pos)].add(lemma)   # key lower-cased; lemma keeps its case
+kept = excluded = 0
+with open(out, "w", encoding="utf-8") as g:
+    for (form, pos) in sorted(fp):
+        lemmas = fp[(form, pos)]
+        if len(lemmas) == 1:                 # unambiguous (form, POS) -> keep; else leave it to the model
+            g.write(form + "\t" + pos + "\t" + next(iter(lemmas)) + "\n")
+            kept += 1
+        else:
+            excluded += 1
+sys.stderr.write("  kept %d (form,POS) entries, dropped %d ambiguous\n" % (kept, excluded))
+PY
+  echo "  -> ${out}  ($(wc -l < "${out}" | tr -d ' ') entries, $(du -h "${out}" | cut -f1))"
+  echo "  format: <form>\\t<POS>\\t<lemma>, from MULTEXT-East (http://nl.ijs.si/ME/), CC BY-SA 4.0."
+  echo "  Attribution: Erjavec et al., MULTEXT-East free lexicons 4.0; share-alike if you redistribute."
+  exit 0
+fi
 
 # --- flat dictionary from the MULTEXT-East morphosyntactic lexicons (CC BY-SA 4.0) ---
 # MULTEXT-East (http://nl.ijs.si/ME/) is the authoritative academic source the michmech lists were
