@@ -1,26 +1,27 @@
 package io.github.radeno.lemmatizer;
 
 import java.io.IOException;
-import java.util.Locale;
-import java.util.Map;
 
+import org.apache.lucene.analysis.CharArrayMap;
 import org.apache.lucene.analysis.TokenFilter;
 import org.apache.lucene.analysis.TokenStream;
 import org.apache.lucene.analysis.tokenattributes.CharTermAttribute;
 import org.apache.lucene.analysis.tokenattributes.KeywordAttribute;
 
 /**
- * Replaces each token with its dictionary lemma (lower-cased form lookup), leaving unknown tokens
- * and tokens marked {@link KeywordAttribute keyword} untouched. Package-private; created via
+ * Replaces each token with its dictionary lemma by exact (case-sensitive) form lookup, leaving
+ * unknown tokens and tokens marked {@link KeywordAttribute keyword} untouched. The dictionary keys
+ * are lower-cased, so chain a {@code lowercase} filter before this one for case-insensitive matching
+ * (the idiomatic Lucene/OpenSearch composition). Package-private; created via
  * {@link DictionaryLemmatizer#apply(TokenStream)}.
  */
 final class DictionaryLemmatizerFilter extends TokenFilter {
 
-    private final Map<String, String> formToLemma;
+    private final CharArrayMap<String> formToLemma;
     private final CharTermAttribute termAttr = addAttribute(CharTermAttribute.class);
     private final KeywordAttribute keywordAttr = addAttribute(KeywordAttribute.class);
 
-    DictionaryLemmatizerFilter(TokenStream input, Map<String, String> formToLemma) {
+    DictionaryLemmatizerFilter(TokenStream input, CharArrayMap<String> formToLemma) {
         super(input);
         this.formToLemma = formToLemma;
     }
@@ -33,7 +34,7 @@ final class DictionaryLemmatizerFilter extends TokenFilter {
         if (keywordAttr.isKeyword()) {
             return true;
         }
-        var lemma = formToLemma.get(termAttr.toString().toLowerCase(Locale.ROOT));
+        var lemma = formToLemma.get(termAttr.buffer(), 0, termAttr.length());
         if (lemma != null) {
             termAttr.setEmpty().append(lemma);
         }

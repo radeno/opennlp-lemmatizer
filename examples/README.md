@@ -13,7 +13,7 @@ curl -XPUT localhost:9200/my-index -H 'Content-Type: application/json' \
 | [cs-analyzer.json](cs-analyzer.json) | `opennlp_lemmatizer` | `cs-pos.bin` + `cs-lemmas.bin` | Czech — best quality (POS-aware) |
 | [sk-analyzer.json](sk-analyzer.json) | `opennlp_lemmatizer` | `sk-pos.bin` + `sk-lemmas.bin` | Slovak — best quality (POS-aware) |
 | [cs-dictionary-analyzer.json](cs-dictionary-analyzer.json) | `dictionary_lemmatizer` | `cs-ud.txt` | Czech — max speed (flat, POS-free) |
-| [sk-dictionary-analyzer.json](sk-dictionary-analyzer.json) | `dictionary_lemmatizer` | `sk-michmech.txt` | Slovak — max speed (flat, POS-free) |
+| [sk-dictionary-analyzer.json](sk-dictionary-analyzer.json) | `dictionary_lemmatizer` | `sk-mte.txt` | Slovak — max speed (flat, POS-free) |
 
 **Choosing the filter.** `opennlp_lemmatizer` is POS-aware — it disambiguates homonyms in context
 (`je → být`, not `jesť`) and writes the POS tag to the token's `type`, at the cost of speed.
@@ -25,4 +25,4 @@ purely by the file names in the settings: `*-pos.bin` / `*-lemmas.bin` for `open
 the `dictionary` file for `dictionary_lemmatizer`. Switch languages by switching the file names, no
 rebuild. Fetch the files with [`scripts/fetch-models.sh`](../scripts/fetch-models.sh): models with
 `fetch-models.sh cs`, and the dictionary with `fetch-models.sh cs-ud` (Czech, from Universal
-Dependencies) or `fetch-models.sh sk-michmech` (Slovak, from michmech).
+Dependencies) or `fetch-models.sh sk-mte` (Slovak, from MULTEXT-East).

@@ -12,7 +12,7 @@
           "cs_dictionary_lemmatizer": {
             "type": "custom",
             "tokenizer": "standard",
-            "filter": [ "cs_lemma_dict", "lowercase" ]
+            "filter": [ "lowercase", "cs_lemma_dict" ]
           }
         }
       }

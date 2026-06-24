@@ -63,19 +63,21 @@ Place them in your node's `config/opennlp/` directory.
 > aligned with the engine — a major mismatch can fail to load. (Lucene 10.4.0, JDK 25.)
 
 For a **larger, POS-free** dictionary, fetch a flat `form → lemma` list for the
-`dictionary_lemmatizer` filter. Pick the source by language — **Slovak → `-michmech`, other
-languages → `-ud`**:
+`dictionary_lemmatizer` filter. Two sources:
 
 ```bash
-./scripts/fetch-models.sh cs-ud         # -> models/cs-ud.txt        (Czech, 185k forms, gold UD lemmas)
-./scripts/fetch-models.sh sk-michmech   # -> models/sk-michmech.txt  (Slovak, 847k forms, ODbL)
+./scripts/fetch-models.sh sk-mte   # -> models/sk-mte.txt   (Slovak, 922k forms, MULTEXT-East, CC BY-SA)
+./scripts/fetch-models.sh cs-ud    # -> models/cs-ud.txt    (Czech, 185k forms, Universal Dependencies)
 ```
 
-`-ud` builds the dictionary from the same [Universal Dependencies](https://universaldependencies.org/)
-treebanks the OpenNLP models are trained on (gold, human-annotated lemmas) — best where the treebank
-is large, like Czech. `-michmech`
-([michmech/lemmatization-lists](https://github.com/michmech/lemmatization-lists), ODbL) has the
-widest coverage for **Slovak** (847k forms), whose UD treebank is small.
+`-mte` builds the dictionary from the [MULTEXT-East](http://nl.ijs.si/ME/) morphosyntactic lexicons
+([CLARIN.SI "free lexicons 4.0"](https://www.clarin.si/repository/xmlui/handle/11356/1041),
+**CC BY-SA 4.0 — commercial use OK**) — the authoritative academic source the popular michmech lists
+were themselves derived from. Widest coverage (Slovak 922k forms), and it carries fine-grained part
+of speech that the POS-aware path can use. `-ud` builds it from the same
+[Universal Dependencies](https://universaldependencies.org/) treebanks the OpenNLP models are trained
+on (gold, human-annotated lemmas) — best where the treebank is large, like Czech. MTE covers
+`bg cs en et fr hu ro sk sl uk`.
 
 ## Install
 
@@ -122,7 +124,7 @@ language-neutral):
 | filter | pick it when | required settings → files (per language) |
 |---|---|---|
 | `opennlp_lemmatizer` | best quality — POS-aware, disambiguates homonyms in context, writes the POS tag to `type` | `pos_model` + `lemmatizer_model` → e.g. `cs-pos.bin` + `cs-lemmas.bin` |
-| `dictionary_lemmatizer` | max speed — flat `form → lemma` lookup, no POS | `dictionary` → e.g. `cs-ud.txt` (Czech) or `sk-michmech.txt` (Slovak) |
+| `dictionary_lemmatizer` | max speed — flat `form → lemma` lookup, no POS | `dictionary` → e.g. `sk-mte.txt` (Slovak) or `cs-ud.txt` (Czech) |
 
 Ready-made analyzer configs for both filters, per language, are in [examples/](examples/).
 
@@ -165,18 +167,20 @@ Full index-analyzer settings per language: [examples/cs-analyzer.json](examples/
 A second filter, `dictionary_lemmatizer`, does a plain `form → lemma` lookup from a flat dictionary.
 It fills the same role as the popular
 [jLemmaGen / `vhyza/elasticsearch-analysis-lemmagen`](https://github.com/vhyza/elasticsearch-analysis-lemmagen)
-plugin — fast, flat, **no part of speech** — but backed by **richer dictionaries** (847k-form
-michmech for Slovak, 185k gold Universal Dependencies lemmas for Czech) and, unlike rule-based
-jLemmaGen, it **leaves unknown words unchanged instead of mangling them**. Fetch a dictionary into
-`config/opennlp/` (**Slovak → `-michmech`, other languages → `-ud`**; see [Models](#models)) and name
-it in the `dictionary` setting — switch languages just by switching the file, no plugin change:
+plugin — fast, flat, **no part of speech** — but backed by **richer dictionaries** (922k-form
+MULTEXT-East for Slovak, 185k gold Universal Dependencies lemmas for Czech) and, unlike rule-based
+jLemmaGen, it **leaves unknown words unchanged instead of mangling them** (jLemmaGen is also
+case-sensitive, so it mangles capitalised words — `Je → Jy`, `Deti → Deť` — whereas this filter is
+case-insensitive). Fetch a dictionary into `config/opennlp/` (**Slovak → `-mte`, Czech → `-ud`**;
+see [Models](#models)) and name it in the `dictionary` setting — switch languages just by switching
+the file, no plugin change:
 
-Slovak (michmech, 847k forms):
+Slovak (MULTEXT-East, 922k forms):
 
 ```bash
 curl -XPOST localhost:9200/_analyze -H 'Content-Type: application/json' -d '{
   "tokenizer": "whitespace",
-  "filter": [{ "type": "dictionary_lemmatizer", "dictionary": "sk-michmech.txt" }],
+  "filter": [ "lowercase", { "type": "dictionary_lemmatizer", "dictionary": "sk-mte.txt" } ],
   "text": "Bratislava je krásne mesto"
 }'
 # tokens: Bratislava  byť  krásny  mesto
@@ -187,7 +191,7 @@ Czech (Universal Dependencies, 185k gold forms):
 ```bash
 curl -XPOST localhost:9200/_analyze -H 'Content-Type: application/json' -d '{
   "tokenizer": "whitespace",
-  "filter": [{ "type": "dictionary_lemmatizer", "dictionary": "cs-ud.txt" }],
+  "filter": [ "lowercase", { "type": "dictionary_lemmatizer", "dictionary": "cs-ud.txt" } ],
   "text": "Tři ženy nesly tři jablka"
 }'
 # tokens: tři  žena  nést  tři  jablko
@@ -195,16 +199,16 @@ curl -XPOST localhost:9200/_analyze -H 'Content-Type: application/json' -d '{
 
 Both verified on real nodes (**OpenSearch 3.7.0** and **Elasticsearch 9.4.2**, identical output):
 
-- **Slovak / michmech** beats the deployed jLemmaGen on the cases that matter — `je → byť`
-  (jLemmaGen: `jesť`), `Boli → byť` (jLemmaGen: `Boľ`), `lese → les` (jLemmaGen: `lesa`) — at the
-  same speed; its 847k-form list dwarfs the small official Slovak model.
+- **Slovak / MULTEXT-East** beats the deployed jLemmaGen on the cases that matter — `je → byť`
+  (jLemmaGen: `jesť`), `tri → tri` (jLemmaGen mangles capitalised `Tri`), `priatelia → priateľ` — at
+  the same speed; its 922k-form lexicon dwarfs the small official Slovak model.
 - **Czech / UD** uses gold, human-annotated lemmas: `Tři ženy nesly tři jablka → tři žena nést tři
   jablko` and `je → být`, where the rule-based jLemmaGen mangles `Tři → Tř` and `je → on`.
 
 **Source and coverage are everything.** It stays POS-free, so it still can't disambiguate homonyms
-in context the way `opennlp_lemmatizer` does, and ranks below it on quality. michmech dictionaries
-are [ODbL](https://opendatacommons.org/licenses/odbl/) (attribution + share-alike); UD-derived
-dictionaries follow their treebank's license (Czech PDT is CC BY-NC-SA).
+in context the way `opennlp_lemmatizer` does, and ranks below it on quality. MTE dictionaries are
+[CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) (attribution + share-alike,
+**commercial use OK**); UD-derived dictionaries follow their treebank's license (Czech PDT is CC BY-NC-SA).
 
 ## OpenNLP vs jLemmaGen
 

@@ -5,14 +5,14 @@
         "filter": {
           "sk_lemma_dict": {
             "type": "dictionary_lemmatizer",
-            "dictionary": "sk-michmech.txt"
+            "dictionary": "sk-mte.txt"
           }
         },
         "analyzer": {
           "sk_dictionary_lemmatizer": {
             "type": "custom",
             "tokenizer": "standard",
-            "filter": [ "sk_lemma_dict", "lowercase" ]
+            "filter": [ "lowercase", "sk_lemma_dict" ]
           }
         }
       }

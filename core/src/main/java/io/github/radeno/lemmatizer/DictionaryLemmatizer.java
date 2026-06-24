@@ -5,20 +5,19 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.HashMap;
 import java.util.Locale;
-import java.util.Map;
 
+import org.apache.lucene.analysis.CharArrayMap;
 import org.apache.lucene.analysis.TokenStream;
 
 /**
  * Fast, POS-free lemmatization by flat dictionary lookup.
  *
- * <p>Loads a tab-separated {@code form<TAB>lemma} dictionary (e.g. fetched from
- * michmech/lemmatization-lists, ODbL) once into memory and replaces each token with its lemma when
- * the lower-cased form is present, leaving unknown tokens unchanged. There is no part of speech, so
- * homonyms resolve to a single baked-in lemma — but it is ~1000x faster than the POS-aware OpenNLP
- * path. Pairs well with a downstream {@code lowercase} filter.
+ * <p>Loads a tab-separated {@code form<TAB>lemma} dictionary (e.g. fetched from MULTEXT-East,
+ * CC BY-SA) once into memory and replaces each token with its lemma by exact lookup, leaving unknown
+ * tokens unchanged. Dictionary keys are lower-cased, so chain a {@code lowercase} filter BEFORE this
+ * one for case-insensitive matching. There is no part of speech, so homonyms resolve to a single
+ * baked-in lemma — but it is ~1000x faster than the POS-aware OpenNLP path.
  *
  * <p>The loaded map is immutable and shared across threads; the per-stream filter only reads it.
  */
@@ -27,9 +26,9 @@ public final class DictionaryLemmatizer {
     /** Token-filter setting naming the dictionary file (in {@code <config>/opennlp/}). */
     public static final String DICTIONARY_SETTING = "dictionary";
 
-    private final Map<String, String> formToLemma;
+    private final CharArrayMap<String> formToLemma;
 
-    private DictionaryLemmatizer(Map<String, String> formToLemma) {
+    private DictionaryLemmatizer(CharArrayMap<String> formToLemma) {
         this.formToLemma = formToLemma;
     }
 
@@ -50,7 +49,10 @@ public final class DictionaryLemmatizer {
 
     /** Load a {@code form<TAB>lemma} dictionary file (UTF-8, one pair per line). */
     public static DictionaryLemmatizer fromFile(Path path) {
-        var map = new HashMap<String, String>(1 << 19);
+        // CharArrayMap: keys are looked up directly off the token's char[] buffer with no per-token
+        // String allocation (the hot path). ignoreCase=false — keys are lower-cased at load, so chain
+        // a `lowercase` filter upstream for case-insensitive matching.
+        var map = new CharArrayMap<String>(1 << 19, false);
         try (var lines = Files.lines(path, StandardCharsets.UTF_8)) {
             lines.forEach(raw -> {
                 var line = (!raw.isEmpty() && raw.charAt(0) == '﻿') ? raw.substring(1) : raw; // strip BOM
@@ -64,14 +66,14 @@ public final class DictionaryLemmatizer {
                 if (extra >= 0) {
                     lemma = lemma.substring(0, extra).strip();
                 }
-                if (!form.isEmpty() && !lemma.isEmpty()) {
-                    map.putIfAbsent(form, lemma);
+                if (!form.isEmpty() && !lemma.isEmpty() && !map.containsKey(form)) {
+                    map.put(form, lemma);
                 }
             });
         } catch (IOException e) {
             throw new UncheckedIOException("Cannot load dictionary from " + path, e);
         }
-        return new DictionaryLemmatizer(Map.copyOf(map));
+        return new DictionaryLemmatizer(CharArrayMap.unmodifiableMap(map));
     }
 
     /** Number of {@code form -> lemma} entries. */

@@ -4,66 +4,74 @@
 #
 # Usage:
 #   ./scripts/fetch-models.sh <lang>            # official Apache OpenNLP POS + lemmatizer models (.bin)
-#   ./scripts/fetch-models.sh <lang>-michmech   # richer flat word->lemma dictionary (ODbL)
+#   ./scripts/fetch-models.sh <lang>-mte        # flat word->lemma dictionary from MULTEXT-East
 #   ./scripts/fetch-models.sh <lang>-ud         # flat word->lemma dictionary from Universal Dependencies
 #   ./scripts/fetch-models.sh <arg> [dest_dir] [opennlp_version]
 #
 # Examples:
 #   ./scripts/fetch-models.sh sk            -> models/sk-pos.bin, models/sk-lemmas.bin   (Apache OpenNLP)
-#   ./scripts/fetch-models.sh sk-michmech   -> models/sk-michmech.txt                    (michmech, ODbL)
+#   ./scripts/fetch-models.sh sk-mte        -> models/sk-mte.txt                         (MULTEXT-East)
 #   ./scripts/fetch-models.sh cs-ud         -> models/cs-ud.txt                          (Universal Dependencies)
 #
-# Both '-michmech' and '-ud' build a flat form->lemma dictionary for the dictionary_lemmatizer filter
+# Both '-mte' and '-ud' build a flat form->lemma dictionary for the dictionary_lemmatizer filter
 # (no part-of-speech, so they cannot disambiguate homonyms in context):
-#   '-michmech' = michmech/lemmatization-lists (ODbL); largest coverage, e.g. Slovak (847k forms).
-#   '-ud'       = the SAME Universal Dependencies treebanks the OpenNLP models are trained from, with
-#                 gold (human-annotated) lemmas. Best for Czech (huge PDT treebank). Per-treebank
-#                 license (Czech PDT is CC BY-NC-SA).
+#   '-mte' = MULTEXT-East morphosyntactic lexicons (http://nl.ijs.si/ME/), CC BY-SA 4.0 (commercial
+#            use OK). Authoritative academic source (michmech was itself derived from it); widest
+#            coverage, e.g. Slovak ~922k forms.
+#   '-ud'  = the SAME Universal Dependencies treebanks the OpenNLP models are trained from, with gold
+#            (human-annotated) lemmas. Best for Czech (huge PDT treebank). Per-treebank license.
 #
 set -euo pipefail
 
-ARG="${1:?usage: fetch-models.sh <lang> | <lang>-michmech [dest_dir]}"
+ARG="${1:?usage: fetch-models.sh <lang> | <lang>-mte | <lang>-ud [dest_dir]}"
 DEST="${2:-models}"
 mkdir -p "$DEST"
 
-# --- richer flat dictionary: michmech/lemmatization-lists (ODbL) ---
-# Downloads michmech's `lemma<TAB>form` list and inverts it to the `form<TAB>lemma` lookup the
-# dictionary_lemmatizer filter consumes. Homonyms (a form with several lemmas) are resolved to the
-# lemma with the largest paradigm (most word forms) — a good "most common reading" heuristic, e.g.
-# the Slovak form `je` -> `byť` (to be), not `jesť` (to eat).
-if [[ "$ARG" == *-michmech ]]; then
-  command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 is required to build the michmech dictionary" >&2; exit 1; }
-  lang="${ARG%-michmech}"
-  url="https://raw.githubusercontent.com/michmech/lemmatization-lists/master/lemmatization-${lang}.txt"
-  out="${DEST}/${lang}-michmech.txt"
+# --- flat dictionary from the MULTEXT-East morphosyntactic lexicons (CC BY-SA 4.0) ---
+# MULTEXT-East (http://nl.ijs.si/ME/) is the authoritative academic source the michmech lists were
+# themselves derived from. We download the per-language `form<TAB>lemma<TAB>MSD` lexicon (CLARIN.SI
+# "MULTEXT-East free lexicons 4.0", handle 11356/1041, CC BY-SA 4.0 — commercial use OK) and collapse
+# it to the `form<TAB>lemma` lookup the dictionary_lemmatizer filter consumes. A form with several
+# lemmas (homonym) resolves to the lemma with the most grammatical readings for that form (tiebreak:
+# the lemma's overall frequency) — e.g. Slovak `tri` -> `tri` (numeral, 9 readings), not `trieť`
+# (verb, 1). The MSD column (fine-grained PoS) is dropped here; the POS-aware path keeps it.
+if [[ "$ARG" == *-mte ]]; then
+  command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 is required to build the MTE dictionary" >&2; exit 1; }
+  command -v gunzip  >/dev/null 2>&1 || { echo "ERROR: gunzip is required to build the MTE dictionary" >&2; exit 1; }
+  lang="${ARG%-mte}"
+  out="${DEST}/${lang}-mte.txt"
   dtmp="$(mktemp -d)"; trap 'rm -rf "$dtmp"' EXIT
-  echo "downloading michmech dictionary (ODbL): ${url}"
-  curl -fsSL -o "${dtmp}/raw.txt" "${url}"
-  echo "inverting lemma->form to form->lemma (homonyms -> largest paradigm)"
-  python3 - "${dtmp}/raw.txt" "${out}" <<'PY'
+  handle="https://www.clarin.si/repository/xmlui/handle/11356/1041"
+  echo "locating MULTEXT-East '${lang}' lexicon in ${handle} ..."
+  href="$(curl -fsSL "$handle" | grep -oE "href=\"[^\"]*wfl-${lang}\.txt[^\"]*\"" | head -1 | sed -E 's/^href="//; s/"$//; s/&amp;/\&/g')"
+  [ -n "$href" ] || { echo "ERROR: no MULTEXT-East lexicon for '${lang}' (free set: bg cs en et fr hu ro sk sl uk)" >&2; exit 1; }
+  url="https://www.clarin.si${href}"
+  echo "downloading (CC BY-SA 4.0): ${url}"
+  curl -fsSL "$url" | gunzip -c > "${dtmp}/wfl.txt"
+  echo "collapsing form/lemma/MSD -> form/lemma (homonyms -> most grammatical readings) ..."
+  python3 - "${dtmp}/wfl.txt" "${out}" <<'PY'
 import sys, collections
-raw, out = sys.argv[1], sys.argv[2]
-count = collections.Counter()
-pairs = []
-with open(raw, encoding="utf-8-sig") as f:          # utf-8-sig drops any BOM
+src, out = sys.argv[1], sys.argv[2]
+flc = collections.defaultdict(collections.Counter)   # form(lowercased) -> Counter(lemma -> #MSD readings)
+ltot = collections.Counter()                          # lemma -> total entries (frequency proxy)
+with open(src, encoding="utf-8") as f:
     for line in f:
-        cols = line.rstrip("\n").split("\t")
-        if len(cols) >= 2:
-            lemma, form = cols[0].strip(), cols[1].strip().lower()
-            if lemma and form:
-                count[lemma] += 1
-                pairs.append((form, lemma))
-best = {}
-for form, lemma in pairs:
-    if form not in best or count[lemma] > count[best[form]]:
-        best[form] = lemma
+        p = line.rstrip("\n").split("\t")
+        if len(p) < 3:
+            continue
+        form, lemma = p[0], p[1]
+        if not form or not lemma:
+            continue
+        flc[form.lower()][lemma] += 1
+        ltot[lemma] += 1
 with open(out, "w", encoding="utf-8") as g:
-    for form in sorted(best):
-        g.write(form + "\t" + best[form] + "\n")
+    for form in sorted(flc):
+        lemma = max(flc[form].items(), key=lambda kv: (kv[1], ltot[kv[0]]))[0]
+        g.write(form + "\t" + lemma + "\n")
 PY
   echo "  -> ${out}  ($(wc -l < "${out}" | tr -d ' ') forms, $(du -h "${out}" | cut -f1))"
-  echo "  format: <form>\\t<lemma>. Open Database License (ODbL) — credit michmech/lemmatization-lists,"
-  echo "  share-alike if you redistribute this derived dictionary."
+  echo "  format: <form>\\t<lemma>, from MULTEXT-East (http://nl.ijs.si/ME/), CC BY-SA 4.0."
+  echo "  Attribution: Erjavec et al., MULTEXT-East free lexicons 4.0; share-alike if you redistribute."
   exit 0
 fi
 

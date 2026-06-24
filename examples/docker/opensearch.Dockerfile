@@ -6,7 +6,7 @@
 #   docker build -f examples/docker/opensearch.Dockerfile \
 #     --build-arg OPENSEARCH_VERSION=3.7.0 --build-arg LANGS="cs sk" -t opensearch-opennlp:3.7.0 .
 #
-# LANGS is a space-separated list passed to fetch-models.sh (e.g. "cs sk", or "sk-michmech").
+# LANGS is a space-separated list passed to fetch-models.sh (e.g. "cs sk", or "sk-mte").
 #
 # syntax=docker/dockerfile:1
 ARG OPENSEARCH_VERSION=3.7.0

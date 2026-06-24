@@ -18,14 +18,15 @@ import org.junit.Test;
 public class DictionaryLemmatizerTest {
 
     @Test
-    public void looksUpCaseInsensitivelyAndLeavesUnknownUnchanged() throws Exception {
+    public void looksUpCaseSensitivelyAndLeavesUnknownUnchanged() throws Exception {
         Path dict = Files.createTempFile("dict", ".txt");
         Files.writeString(dict, "je\tbyť\nlese\tles\nstromy\tstrom\n");
 
         DictionaryLemmatizer lemmatizer = DictionaryLemmatizer.fromFile(dict);
-        // "Je" matches case-insensitively; "v" and "xyz" are unknown -> unchanged
-        List<String> out = lemmatize(lemmatizer, "Je v lese stromy xyz");
-        assertArrayEquals(new String[] { "byť", "v", "les", "strom", "xyz" }, out.toArray(new String[0]));
+        // exact (case-sensitive) lookup: lower-case forms match; capitalised "Je" does NOT match
+        // (chain a `lowercase` filter for case-insensitive matching); "v"/"xyz" unknown -> unchanged
+        List<String> out = lemmatize(lemmatizer, "Je je v lese stromy xyz");
+        assertArrayEquals(new String[] { "Je", "byť", "v", "les", "strom", "xyz" }, out.toArray(new String[0]));
     }
 
     private static List<String> lemmatize(DictionaryLemmatizer lemmatizer, String text) throws Exception {

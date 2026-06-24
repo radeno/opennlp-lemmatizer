@@ -6,7 +6,7 @@
 #   docker build -f examples/docker/elasticsearch.Dockerfile \
 #     --build-arg ELASTICSEARCH_VERSION=9.4.2 --build-arg LANGS="cs sk" -t elasticsearch-opennlp:9.4.2 .
 #
-# LANGS is a space-separated list passed to fetch-models.sh (e.g. "cs sk", or "sk-michmech").
+# LANGS is a space-separated list passed to fetch-models.sh (e.g. "cs sk", or "sk-mte").
 # The plugin's elasticsearch.version must match the base image exactly — the build-arg handles both.
 #
 # syntax=docker/dockerfile:1

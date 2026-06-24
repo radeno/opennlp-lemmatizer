@@ -17,8 +17,8 @@ docker build -f examples/docker/elasticsearch.Dockerfile \
 ```
 
 `LANGS` is passed straight to `fetch-models.sh`, so it accepts the official OpenNLP model languages
-(`cs`, `sk`, …) and the flat-dictionary sources (`cs-ud` for Czech, `sk-michmech` for Slovak). For
-example `LANGS="cs sk-michmech cs-ud"` bakes in the Czech models plus both flat dictionaries. (Note:
+(`cs`, `sk`, …) and the flat-dictionary sources (`sk-mte` for Slovak, `cs-ud` for Czech). For
+example `LANGS="cs sk-mte cs-ud"` bakes in the Czech models plus both flat dictionaries. (Note:
 `cs-ud` downloads ~450 MB of treebanks at build time, but only the resulting ~3.5 MB dictionary lands
 in the final image.) Run as usual:
 
