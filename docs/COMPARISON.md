@@ -55,6 +55,57 @@ The `dictionary` column uses the recommended per-language source — `cs-ud` for
 for Slovak. Only POS (opennlp / UDPipe) resolves homonyms *in context*; a flat dictionary bakes in
 one reading. UDPipe (full morphology) is the highest quality but native and CC BY-NC-SA.
 
+## Whole-sentence comparison
+
+Full sentences through the **deployed jLemmaGen plugin**, **`opennlp_lemmatizer`**, and
+**`dictionary_lemmatizer`** — real `_analyze` output on the live OpenSearch 3.7.0 node (standard
+tokenizer, no `lowercase` filter, so each lemmatizer's own case handling shows). Wrong lemmas
+marked `✗`.
+
+**Czech** (dictionary = `cs-ud`):
+
+```
+Ženy nesly těžké tašky plné zralých jablek
+  jLemmaGen:   Žit✗ nést těžký taška plný zralý jablek✗
+  opennlp:     žena nést těžký taška plný zralý jablko          (all correct)
+  dictionary:  žena nést těžký taška plný zralých✗ jablko
+
+Moji přátelé četli zajímavé knihy o starých hradech
+  jLemmaGen:   Moj✗ přítel číst zajímavý kniha on✗ starý hrad
+  opennlp:     můj přítel číst zajímavý kniha o starý hrad      (all correct)
+  dictionary:  můj přítel číst zajímavý kniha o starý hrad      (all correct)
+```
+
+**Slovak** (dictionary = `sk-michmech`):
+
+```
+Včera sme v lese videli tri veľké medvede
+  jLemmaGen:   Včer✗ byť v lesa✗ vidieť tri veľký medveď
+  opennlp:     včera byť v les vidieť tri veľký medveď          (all correct)
+  dictionary:  Včera✗ byť v les vidieť trieť✗ veľký medveď
+
+Moji priatelia čítali zaujímavé knihy o starých hradoch
+  jLemmaGen:   Moj✗ priateľ čítať zaujímavý kniha o starý hrad
+  opennlp:     môj priateľ čítať zaujímavý kniha o starý hrad   (all correct)
+  dictionary:  môj priateliť✗ čítať zaujímavý kniha o starý hrad
+
+Ženy niesli ťažké tašky plné zrelých jabĺk
+  jLemmaGen:   Žena niesť ťažký taška plný zrelý jablko         (correct, but keeps the capital)
+  opennlp:     žena niesť ťažký taška plný zrelý jablko         (all correct)
+  dictionary:  žena niesť ťažký taška plný zrelý jablko         (all correct)
+```
+
+What it shows:
+
+- **`opennlp_lemmatizer` is correct on every token.** POS tagging does two things context-free rules
+  can't: disambiguate homonyms (`tri` → `tri`, not `trieť`) and normalise case (`Včera` → `včera`).
+- **jLemmaGen** mangles capitalised and irregular forms — `Ženy → Žit` ("women" → "to live"),
+  `o → on`, `Včera → Včer`, `lese → lesa`, `medvědy → medvěda` — because surface rules have no notion
+  of word class, and it never lowercases the leading word.
+- **`dictionary_lemmatizer`** sits between them: fast and mostly right, but a flat list still has gaps
+  (cs `zralých` unchanged) and can't resolve homonyms (sk `tri → trieť`) or unseen capitalised forms
+  (`Včera`) — yet it never invents a wrong stem the way a bad rule does.
+
 ## Throughput
 
 Two measurements, because *where* you measure changes the number.

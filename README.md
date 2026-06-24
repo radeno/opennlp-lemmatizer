@@ -206,37 +206,6 @@ in context the way `opennlp_lemmatizer` does, and ranks below it on quality. mic
 are [ODbL](https://opendatacommons.org/licenses/odbl/) (attribution + share-alike); UD-derived
 dictionaries follow their treebank's license (Czech PDT is CC BY-NC-SA).
 
-### Worked examples (whole sentences)
-
-Real `_analyze` output on the live nodes, showing how heavy inflection (case, number, tense)
-collapses to lemmas. Czech via `cs-ud`, Slovak via `sk-michmech`.
-
-**Czech** — `opennlp_lemmatizer` and `dictionary_lemmatizer` agree here:
-
-```text
-Moji přátelé četli zajímavé knihy o starých hradech
-  → můj přítel číst zajímavý kniha o starý hrad
-
-Včera jsme v lese viděli tři velké medvědy
-  → včera být v les vidět tři velký medvěd
-```
-
-**Slovak** — same collapse, plus a case where part of speech matters:
-
-```text
-Ženy niesli ťažké tašky plné zrelých jabĺk
-  → žena niesť ťažký taška plný zrelý jablko          (both filters)
-
-Včera sme v lese videli tri veľké medvede
-  opennlp_lemmatizer:     včera byť v les vidieť tri veľký medveď
-  dictionary_lemmatizer:  Včera byť v les vidieť trieť veľký medveď
-```
-
-> In the last sentence the flat dictionary trips on the homonym `tri` (three → `trieť`, "to rub") and
-> leaves the unknown `Včera` untouched, while `opennlp_lemmatizer` reads the part of speech in context
-> and gets `tri` and `včera` right. That in-context disambiguation is the whole reason to reach for
-> the slower filter.
-
 ## OpenNLP vs jLemmaGen
 
 The common Czech/Slovak alternative is
