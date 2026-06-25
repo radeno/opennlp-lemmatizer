@@ -141,9 +141,13 @@ PY
   hom="${HOMONYMS:-${script_dir}/../experiments/homonym-resolution/${lang}-homonyms.txt}"
   if [ -f "$hom" ]; then
     cat "$hom" >> "${out}"
-    sort -u -o "${out}" "${out}"
     echo "  merged $(wc -l < "$hom" | tr -d ' ') homonym resolutions from ${hom}"
   fi
+  # Emit in unsigned-byte (LC_ALL=C) order with lower-cased forms = the FST's key order, so the loader
+  # streams the file straight into the automaton with no in-heap entry buffer (FstPosDictionaryLemmatizer
+  # falls back to an in-heap sort if a dictionary is not in this order). Forms are already lower-cased
+  # above; sorting the whole line keeps duplicate (form, POS) keys adjacent for first-wins de-duplication.
+  LC_ALL=C sort -u -o "${out}" "${out}"
   echo "  -> ${out}  ($(wc -l < "${out}" | tr -d ' ') entries, $(du -h "${out}" | cut -f1))"
   echo "  format: <form>\\t<POS>\\t<lemma>, from MULTEXT-East (http://nl.ijs.si/ME/), CC BY-SA 4.0."
   echo "  Attribution: Erjavec et al., MULTEXT-East free lexicons 4.0; share-alike if you redistribute."
