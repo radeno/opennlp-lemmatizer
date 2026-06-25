@@ -10,9 +10,9 @@ This experiment disambiguates them with **grammatical gender**: a POS model trai
 (so `hrady` splits into `NOUN.Masc→hrad` / `NOUN.Fem→hrada`). It rides the **shipped**
 `pos_dictionary_lemmatizer` filter via the `pos_format: native` setting — no new filter.
 
-> Status: **works end-to-end on OpenSearch**, but the gender model (~8–24 MB) and dict are not yet
-> distributed as release artifacts. Reproduce with `build-gender-model.sh` below. The gender tagger
-> caps at ~87% (so ~13% of gender slots are wrong) — net-positive on the homonym class, not perfect.
+> Status: **works end-to-end on OpenSearch.** The model + dict are published as a GitHub Release —
+> `./scripts/fetch-models.sh sk-gender` — and rebuildable with `build-gender-model.sh` below. The gender
+> tagger caps at ~87% (so ~13% of gender slots are wrong) — net-positive on the homonym class, not perfect.
 
 ## Use (`pos_format: native`)
 

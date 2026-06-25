@@ -15,12 +15,13 @@ curl -XPUT localhost:9200/my-index -H 'Content-Type: application/json' \
 | [sk-pos-dictionary-analyzer.json](sk-pos-dictionary-analyzer.json) | `pos_dictionary_lemmatizer` | `sk-pos.bin` + `sk-lemmas.bin` + `sk-mte-pos.txt` | Slovak — best precision on known words (POS dict + model) |
 | [cs-dictionary-analyzer.json](cs-dictionary-analyzer.json) | `dictionary_lemmatizer` | `cs-ud.txt` | Czech — max speed (flat, POS-free) |
 | [sk-dictionary-analyzer.json](sk-dictionary-analyzer.json) | `dictionary_lemmatizer` | `sk-mte.txt` | Slovak — max speed (flat, POS-free) |
-| [sk-gender-analyzer.json](sk-gender-analyzer.json) | `pos_dictionary_lemmatizer` (`pos_format: native`) | `sk-gender.bin` + `sk-lemmas.bin` + `sk-gender-dict.txt` | Slovak — disambiguates gender-homonyms (`hrady → hrad`/`hrada`); **build the model/dict first** (see below) |
+| [sk-gender-analyzer.json](sk-gender-analyzer.json) | `pos_dictionary_lemmatizer` (`pos_format: native`) | `sk-gender.bin` + `sk-lemmas.bin` + `sk-gender-dict.txt` | Slovak — disambiguates gender-homonyms (`hrady → hrad`/`hrada`) |
 
-> **The gender example needs models you build yourself.** `sk-gender.bin` and `sk-gender-dict.txt` are
-> not release artifacts — produce them with
-> [`experiments/gender/build-gender-model.sh`](../experiments/gender/build-gender-model.sh), then drop
-> them in `config/opennlp/`. See [experiments/gender/](../experiments/gender/README.md) for the numbers.
+> **Gender model + dictionary** come from a GitHub Release, not the official model repos — fetch them
+> with `./scripts/fetch-models.sh sk-gender` (also run `fetch-models.sh sk` for `sk-lemmas.bin`). They
+> are reproducible/rebuildable with
+> [`experiments/gender/build-gender-model.sh`](../experiments/gender/build-gender-model.sh); see
+> [experiments/gender/](../experiments/gender/README.md) for the measurements.
 
 **Choosing the filter.** `opennlp_lemmatizer` is the POS-aware MaxEnt model — it disambiguates homonyms
 in context (`je → být`, not `jesť`) and lemmatises unseen words, at the cost of speed.

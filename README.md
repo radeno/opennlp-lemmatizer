@@ -73,7 +73,9 @@ For a **larger dictionary**, fetch one of these (all need `python3`; `-mte*` als
 ```
 
 `-mte-pos` is the **POS-aware** `form/POS/lemma` dictionary for `pos_dictionary_lemmatizer`; `-mte`
-and `-ud` are **flat** `form → lemma` lists for `dictionary_lemmatizer`. `-mte*` build from the
+and `-ud` are **flat** `form → lemma` lists for `dictionary_lemmatizer`. For Slovak gender-homonym
+disambiguation, `./scripts/fetch-models.sh sk-gender` pulls a prebuilt UPOS+gender POS model and its
+dictionary (used with `pos_format: native`; see [experiments/gender/](experiments/gender/README.md)). `-mte*` build from the
 [MULTEXT-East](http://nl.ijs.si/ME/) morphosyntactic lexicons
 ([CLARIN.SI "free lexicons 4.0"](https://www.clarin.si/repository/xmlui/handle/11356/1041),
 **CC BY-SA 4.0 — commercial use OK**) — the authoritative academic source the popular michmech lists

@@ -7,12 +7,14 @@
 #   ./scripts/fetch-models.sh <lang>-mte        # flat word->lemma dictionary from MULTEXT-East
 #   ./scripts/fetch-models.sh <lang>-mte-pos    # POS-aware form/POS/lemma dictionary from MULTEXT-East
 #   ./scripts/fetch-models.sh <lang>-ud         # flat word->lemma dictionary from Universal Dependencies
+#   ./scripts/fetch-models.sh <lang>-gender     # prebuilt UPOS+gender POS model + dictionary (Release asset)
 #   ./scripts/fetch-models.sh <arg> [dest_dir] [opennlp_version]
 #
 # Examples:
 #   ./scripts/fetch-models.sh sk            -> models/sk-pos.bin, models/sk-lemmas.bin   (Apache OpenNLP)
 #   ./scripts/fetch-models.sh sk-mte        -> models/sk-mte.txt                         (MULTEXT-East)
 #   ./scripts/fetch-models.sh sk-mte-pos    -> models/sk-mte-pos.txt                     (MULTEXT-East, POS)
+#   ./scripts/fetch-models.sh sk-gender     -> models/sk-gender.bin, sk-gender-dict.txt  (gender, Release)
 #   ./scripts/fetch-models.sh cs-ud         -> models/cs-ud.txt                          (Universal Dependencies)
 #
 # '-mte-pos' builds the POS-aware form<TAB>POS<TAB>lemma dictionary for the pos_dictionary_lemmatizer
@@ -32,6 +34,25 @@ set -euo pipefail
 ARG="${1:?usage: fetch-models.sh <lang> | <lang>-mte | <lang>-ud [dest_dir]}"
 DEST="${2:-models}"
 mkdir -p "$DEST"
+
+# --- prebuilt gender-aware POS model + dictionary (GitHub Release assets) ---
+# A POS model emitting a UPOS+gender tagset plus a `form<TAB>UPOS.gender<TAB>lemma` dictionary, for
+# disambiguating gender-homonyms (sk `hrady` -> `hrad`/`hrada`) with pos_dictionary_lemmatizer and
+# "pos_format":"native". These are not built from open data on the fly (they need UDPipe + a large
+# corpus + training) — they are downloaded as release assets. Reproduce/rebuild them with
+# experiments/gender/build-gender-model.sh.
+if [[ "$ARG" == *-gender ]]; then
+  command -v gunzip >/dev/null 2>&1 || { echo "ERROR: gunzip is required for the gender dictionary" >&2; exit 1; }
+  lang="${ARG%-gender}"
+  base="https://github.com/radeno/opennlp-lemmatizer/releases/download/${lang}-gender"
+  echo "downloading prebuilt '${lang}' gender model + dictionary from ${base} ..."
+  curl -fsSL -o "${DEST}/${lang}-gender.bin" "${base}/${lang}-gender.bin"
+  curl -fsSL "${base}/${lang}-gender-dict.txt.gz" | gunzip -c > "${DEST}/${lang}-gender-dict.txt"
+  echo "  -> ${DEST}/${lang}-gender.bin  ($(du -h "${DEST}/${lang}-gender.bin" | cut -f1))"
+  echo "  -> ${DEST}/${lang}-gender-dict.txt  ($(wc -l < "${DEST}/${lang}-gender-dict.txt" | tr -d ' ') entries)"
+  echo "  Use with pos_dictionary_lemmatizer + \"pos_format\":\"native\" (also needs ${lang}-lemmas.bin)."
+  exit 0
+fi
 
 # --- POS-aware form/POS/lemma dictionary from the MULTEXT-East lexicons (CC BY-SA 4.0) ---
 # Same source as '-mte', but keeps part of speech so the pos_dictionary_lemmatizer can disambiguate
