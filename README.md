@@ -245,9 +245,16 @@ curl -XPOST localhost:9200/_analyze -H 'Content-Type: application/json' -d '{
 > Words MTE only knows as common nouns, or doesn't know, fall back to the (lower-cased) model lemma.
 >
 > **`pos_format` (advanced).** Defaults to `penn` — Lucene normalises the POS model's tags to the Penn
-> tagset, which the MTE dictionaries above expect. Set `pos_format: native` to keep a model's own
-> tagset (UD/UPOS, or a UPOS+gender model) so the dictionary can key on it — used to disambiguate Slovak
-> gender-homonyms (`hrady → hrad`/`hrada`); see [experiments/gender/](experiments/gender/README.md).
+> tagset, which is what the `-mte-pos` dictionary above is keyed on. **Keep the default for `sk-mte-pos.txt`.**
+> Set `pos_format: native` *only* when the dictionary's POS column matches the model's own native tagset
+> (e.g. the UPOS+gender model + dict from [experiments/gender/](experiments/gender/README.md)). Pairing
+> `native` with the Penn `-mte-pos` dictionary makes every lookup miss (the model emits UD `NOUN`, the
+> dict has Penn `NN`) → degraded model fallback. The two must agree.
+>
+> **POS-relaxed fallback.** A form with a single lemma regardless of part of speech also gets a
+> `form<TAB>*<TAB>lemma` row, so when the POS tagger mis-tags such a word (`saunu` called a verb) the
+> filter still recovers its lemma (`sauna`) instead of falling to the model. Ambiguous forms (`je`) have
+> no `*` row, so context disambiguation is preserved. (Fetch a fresh `sk-mte-pos.txt` to get the `*` rows.)
 
 ## OpenNLP vs jLemmaGen
 

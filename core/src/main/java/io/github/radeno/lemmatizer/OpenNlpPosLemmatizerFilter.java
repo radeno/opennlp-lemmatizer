@@ -46,6 +46,12 @@ final class OpenNlpPosLemmatizerFilter extends TokenFilter {
     private final String[] word = new String[1];
     private final String[] tag = new String[1];
     private final String[] fallbackTag = new String[1];
+    // Sentinel POS for the POS-relaxed lookup: a dictionary may carry a `form<TAB>*<TAB>lemma` row for
+    // every form that has a single lemma regardless of part of speech. When the POS tagger mis-tags such
+    // a form the exact `(form, POS)` lookup misses, so we retry under `*` before the model — recovering
+    // e.g. `saunu → sauna` when the tagger wrongly calls it a verb. Ambiguous forms have no `*` row.
+    private static final String ANY_POS = "*";
+    private final String[] anyTag = { ANY_POS };
 
     OpenNlpPosLemmatizerFilter(TokenStream input, Lemmatizer dictionary, LemmatizerModel model) {
         super(input);
@@ -63,10 +69,13 @@ final class OpenNlpPosLemmatizerFilter extends TokenFilter {
         }
         word[0] = termAttr.toString();
         tag[0] = typeAttr.type();
-        String lemma = dictionary.lemmatize(word, tag)[0]; // shared dictionary first
+        String lemma = dictionary.lemmatize(word, tag)[0];     // exact (form, POS) first
         if (isBlank(lemma)) {
-            fallbackTag[0] = toPennTag(tag[0]);            // normalise tag for the Penn-trained model
-            lemma = model.lemmatize(word, fallbackTag)[0]; // MaxEnt model fallback
+            lemma = dictionary.lemmatize(word, anyTag)[0];     // POS-relaxed (single-lemma forms)
+        }
+        if (isBlank(lemma)) {
+            fallbackTag[0] = toPennTag(tag[0]);                // normalise tag for the Penn-trained model
+            lemma = model.lemmatize(word, fallbackTag)[0];     // MaxEnt model fallback
         }
         if (!isBlank(lemma)) {
             termAttr.setEmpty().append(lemma);

@@ -99,7 +99,8 @@ def penn(msd):
     if cat == 'M': return 'CD'                              # numeral (cardinal/ordinal/...)
     if cat == 'I': return 'UH'                              # interjection
     return None                                            # X residual, Y abbreviation, Z punctuation -> model
-fp = collections.defaultdict(set)   # (form_lower, POS) -> {lemma}
+fp = collections.defaultdict(set)     # (form_lower, POS) -> {lemma}
+fa = collections.defaultdict(set)     # form_lower -> {lemma} across ALL readings (for the POS-relax row)
 with open(src, encoding="utf-8") as f:
     for line in f:
         p = line.rstrip("\n").split("\t")
@@ -108,11 +109,12 @@ with open(src, encoding="utf-8") as f:
         form, lemma, msd = p[0], p[1], p[2]
         if not form or not lemma or not msd:
             continue
+        fa[form.lower()].add(lemma)
         pos = penn(msd)
         if pos is None:
             continue
         fp[(form.lower(), pos)].add(lemma)   # key lower-cased; lemma keeps its case
-kept = excluded = 0
+kept = excluded = relaxed = 0
 with open(out, "w", encoding="utf-8") as g:
     for (form, pos) in sorted(fp):
         lemmas = fp[(form, pos)]
@@ -121,7 +123,14 @@ with open(out, "w", encoding="utf-8") as g:
             kept += 1
         else:
             excluded += 1
-sys.stderr.write("  kept %d (form,POS) entries, dropped %d ambiguous\n" % (kept, excluded))
+    # POS-relax: a `form<TAB>*<TAB>lemma` row for every form with ONE lemma across all its readings, so
+    # the filter recovers the lemma when the POS tagger mis-tags such a form (e.g. saunu tagged a verb).
+    for form in sorted(fa):
+        if len(fa[form]) == 1:
+            g.write(form + "\t*\t" + next(iter(fa[form])) + "\n")
+            relaxed += 1
+sys.stderr.write("  kept %d (form,POS) entries, dropped %d ambiguous, %d POS-relax(*) rows\n"
+                 % (kept, excluded, relaxed))
 PY
   echo "  -> ${out}  ($(wc -l < "${out}" | tr -d ' ') entries, $(du -h "${out}" | cut -f1))"
   echo "  format: <form>\\t<POS>\\t<lemma>, from MULTEXT-East (http://nl.ijs.si/ME/), CC BY-SA 4.0."

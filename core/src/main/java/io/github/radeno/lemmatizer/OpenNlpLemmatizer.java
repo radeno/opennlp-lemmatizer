@@ -41,8 +41,13 @@ public final class OpenNlpLemmatizer {
     /**
      * Token-filter setting choosing the POS tagset the tagger emits: {@code penn} (default) keeps
      * Lucene's behaviour of normalising the model's tags to the Penn tagset; {@code native} preserves
-     * the model's own tagset verbatim (e.g. a UD/UPOS or UPOS+gender model). The dictionary's POS
-     * column must match the chosen format.
+     * the model's own tagset verbatim (e.g. a UD/UPOS or UPOS+gender model).
+     *
+     * <p><b>The dictionary's POS column must match the chosen format.</b> Use {@code native} only with a
+     * dictionary keyed on the model's native tags (e.g. the UPOS+gender model + dictionary). Pairing
+     * {@code native} with a Penn-keyed dictionary (the standard {@code -mte-pos} build) makes every
+     * lookup miss — the model emits UD {@code NOUN} while the dictionary holds Penn {@code NN} — so it
+     * degrades to model fallback. Keep {@code penn} for the standard dictionary.
      */
     public static final String POS_FORMAT_SETTING = "pos_format";
 
