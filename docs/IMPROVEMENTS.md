@@ -106,8 +106,9 @@ trained with the OpenNLP CLI `POSTaggerTrainer`, evaluated on the UD Slovak-SNK 
 | UD Slovak-SNK (gold) | 80k | 83.8% | 80.5% |
 | + MTE-1984 corpus (gold) | 184k | 82.6% | 82.5% |
 | UDPipe-tagged Wikipedia (silver, distillation) | 1.13M | 87.6% | 85.8% |
-| silver + gold | 1.31M | 88.0% | **86.2%** |
-| **UDPipe itself (teacher ceiling)** | — | — | **87.25%** |
+| silver + gold (partial silver, segfault) | 1.31M | 88.0% | 86.2% |
+| **silver + gold (full 300k re-tagged)** | 5.18M | 89.1% | **87.89%** |
+| **UDPipe itself (teacher ceiling)** | — | — | 87.25% |
 
 **Distillation works.** Using UDPipe to tag a large raw corpus → training OpenNLP on the silver took
 pure-Java OpenNLP from 80.5% → **86.2%** gender, **~1 point off the UDPipe teacher (87.25%)** — nearly
@@ -140,11 +141,15 @@ each approach gives the target word:
 worth a real module + `_analyze` node test *if those words matter* (it is still only ~0.12% of the
 dictionary, and needs the distillation pipeline + a new gender-keyed FST dict + a custom filter).
 
-**Caveat — the silver set was truncated.** UDPipe segfaulted (SIGSEGV in `libudpipe_java.dylib`'s
-`pipeline::process`) after ~70k of the 300k Wikipedia sentences (~1.13M tokens). The 86.2%/86% numbers
-are from that partial set. Tagging the full 300k+ (process in chunks via separate JVMs so one bad input
-doesn't kill the run, or larger raw corpora — Leipzig `slk-sk_web_2015_1M`, FineWeb2) should raise the
-distilled tagger and shrink the `autom→aut` / `more→mor` regressions. **Not yet retried at scale.**
+**Scaling the silver set (done).** UDPipe first segfaulted (SIGSEGV in `libudpipe_java.dylib`'s
+`pipeline::process`) after ~70k of 300k sentences. Re-tagging the full corpus **in 5,000-line chunks,
+each in a separate JVM** sidestepped the crash entirely (0 crashes, 310k sentences, **5.0M tokens**).
+Retraining on 5.18M tokens raised aggregate gender **86.2% → 87.89% — now matching/slightly above the
+UDPipe teacher (87.25%)**. So distillation scales and a MaxEnt student can match the neural teacher's
+gender on this test. The 35-sentence real-world test stayed ~83–86% (29–30/35) — too small to resolve
+the +1.7pt aggregate gain (individual homonyms like `hrady` flip between model versions); a larger
+gold-annotated homonym test would be needed to measure scaling on that class specifically. Bigger raw
+corpora (Leipzig `slk-sk_web_2015_1M`, FineWeb2) are the next lever if ever pursued.
 
 Reproduction assets were in `/tmp` this session (`UdpipeTag`, `EvalGender`, `RealEval`, the 35-sentence
 `realtest.tsv`); UD-SNK via `fetch-models.sh sk-ud`, MTE-1984 at CLARIN handle 11356/1043, Leipzig raw
