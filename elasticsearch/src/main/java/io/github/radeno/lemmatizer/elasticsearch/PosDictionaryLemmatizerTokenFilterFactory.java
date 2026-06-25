@@ -31,7 +31,8 @@ public class PosDictionaryLemmatizerTokenFilterFactory extends AbstractTokenFilt
             env.configDir(),
             settings.get(OpenNlpLemmatizer.POS_MODEL_SETTING),
             settings.get(OpenNlpLemmatizer.LEMMATIZER_MODEL_SETTING),
-            dictionary);
+            dictionary,
+            OpenNlpLemmatizer.isNativePosFormat(settings.get(OpenNlpLemmatizer.POS_FORMAT_SETTING)));
     }
 
     @Override

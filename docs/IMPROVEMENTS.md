@@ -174,11 +174,17 @@ the gender dict misses on `?` and the word falls through. Verified directly: sam
 them. (Thanks to the reviewer who pushed back on the "bug" framing — it's the documented `POSTagFormat`
 API.)
 
-**So a UPOS+gender tagset cannot flow through Lucene's `OpenNLPPOSFilter`.** To ship gender, the filter
-must do its own POS step — `new POSTaggerME(genderModel, POSTagFormat.CUSTOM)` (or default), write the
-tag to the `TypeAttribute` itself, then run `FstPosDictionaryLemmatizer` — instead of reusing
-`OpenNLPPOSFilter`/`NLPPOSTaggerOp`. That's the concrete fix for a future gender module. The `toPennTag`
-fallback normaliser is already committed and is correct/benign for the existing Penn path regardless.
+**Fixed and shipped as the `pos_format` setting.** `OpenNlpLemmatizer` now has a
+`NativeFormatPosTaggerOp` (a `NLPPOSTaggerOp` subclass that tags with `POSTagFormat.CUSTOM`), selected by
+`pos_format: native` on `pos_dictionary_lemmatizer` (default `penn` keeps the old behaviour). With it the
+gender pipeline **works end-to-end on the node**: `jablká→jablko`, `pijú→piť`, `lese→les`, `vyrába→vyrábať`,
+`repy→repa`, `diel→diel` (Penn path gives the wrong `dielo`). Residual errors (`hrady→hrada`, `zámky→zámka`)
+are the model's genuine ~13% gender mistakes (the 87% ceiling), not the format issue. Note: the official
+`sk-pos.bin` is itself a UD-native model (emits `NOUN`/`VERB`); the existing Penn dict relies on the default
+`penn` normalisation, which is why the setting defaults to `penn` and gender opts into `native`. The
+`toPennTag` fallback normaliser pairs with this so out-of-dict words still lemmatise. Distributing the gender
+model/dict as artifacts (a build script + a fetch target) is the remaining productionisation step — see
+`experiments/gender/`.
 
 ## Reference numbers (this session, OS 3.7.0)
 

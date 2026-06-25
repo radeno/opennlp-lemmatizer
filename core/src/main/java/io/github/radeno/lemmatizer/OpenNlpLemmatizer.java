@@ -10,6 +10,8 @@ import java.nio.file.Path;
 import opennlp.tools.lemmatizer.Lemmatizer;
 import opennlp.tools.lemmatizer.LemmatizerModel;
 import opennlp.tools.postag.POSModel;
+import opennlp.tools.postag.POSTagFormat;
+import opennlp.tools.postag.POSTaggerME;
 
 import org.apache.lucene.analysis.TokenStream;
 import org.apache.lucene.analysis.opennlp.OpenNLPLemmatizerFilter;
@@ -36,16 +38,30 @@ public final class OpenNlpLemmatizer {
     public static final String POS_MODEL_SETTING = "pos_model";
     /** Token-filter setting naming the OpenNLP lemmatizer model file. */
     public static final String LEMMATIZER_MODEL_SETTING = "lemmatizer_model";
+    /**
+     * Token-filter setting choosing the POS tagset the tagger emits: {@code penn} (default) keeps
+     * Lucene's behaviour of normalising the model's tags to the Penn tagset; {@code native} preserves
+     * the model's own tagset verbatim (e.g. a UD/UPOS or UPOS+gender model). The dictionary's POS
+     * column must match the chosen format.
+     */
+    public static final String POS_FORMAT_SETTING = "pos_format";
 
     private final POSModel posModel;
     private final LemmatizerModel lemmatizerModel;
     private final Lemmatizer lemmaDictionary; // nullable; shared, consulted before the model
+    private final boolean nativePosTags;      // true -> preserve the model's tagset (POSTagFormat.CUSTOM)
 
     private OpenNlpLemmatizer(POSModel posModel, LemmatizerModel lemmatizerModel,
-                              Lemmatizer lemmaDictionary) {
+                              Lemmatizer lemmaDictionary, boolean nativePosTags) {
         this.posModel = posModel;
         this.lemmatizerModel = lemmatizerModel;
         this.lemmaDictionary = lemmaDictionary;
+        this.nativePosTags = nativePosTags;
+    }
+
+    /** Whether {@code value} requests the model's native tagset rather than Penn normalisation. */
+    public static boolean isNativePosFormat(String value) {
+        return value != null && (value.equalsIgnoreCase("native") || value.equalsIgnoreCase("custom"));
     }
 
     /**
@@ -58,40 +74,52 @@ public final class OpenNlpLemmatizer {
      */
     public static OpenNlpLemmatizer fromConfig(String filterName, Path configDir,
                                                String posModelFile, String lemmatizerModelFile) {
-        return fromConfig(filterName, configDir, posModelFile, lemmatizerModelFile, null);
+        return fromConfig(filterName, configDir, posModelFile, lemmatizerModelFile, null, false);
     }
 
     /**
      * As {@link #fromConfig(String, Path, String, String)} plus a {@code form<TAB>POS<TAB>lemma}
      * dictionary consulted before the model. Used by the {@code pos_dictionary_lemmatizer} factory.
+     * {@code nativePosTags} preserves the POS model's own tagset (see {@link #POS_FORMAT_SETTING}).
      */
     public static OpenNlpLemmatizer fromConfig(String filterName, Path configDir, String posModelFile,
-                                               String lemmatizerModelFile, String lemmatizerDictFile) {
+                                               String lemmatizerModelFile, String lemmatizerDictFile,
+                                               boolean nativePosTags) {
         if (isBlank(posModelFile) || isBlank(lemmatizerModelFile)) {
             throw new IllegalArgumentException("[" + filterName + "] token filter requires both '"
                 + POS_MODEL_SETTING + "' and '" + LEMMATIZER_MODEL_SETTING + "' settings");
         }
         Path dir = configDir.resolve(MODELS_DIRECTORY);
         Path dictPath = isBlank(lemmatizerDictFile) ? null : dir.resolve(lemmatizerDictFile);
-        return fromModels(dir.resolve(posModelFile), dir.resolve(lemmatizerModelFile), dictPath);
+        return fromModels(dir.resolve(posModelFile), dir.resolve(lemmatizerModelFile), dictPath, nativePosTags);
     }
 
     /** Load directly from the two model file paths (no lemmatizer dictionary). */
     public static OpenNlpLemmatizer fromModels(Path posModelPath, Path lemmatizerModelPath) {
-        return fromModels(posModelPath, lemmatizerModelPath, null);
+        return fromModels(posModelPath, lemmatizerModelPath, null, false);
     }
 
     /** As {@link #fromModels(Path, Path)} with an optional {@code form<TAB>POS<TAB>lemma} dictionary. */
     public static OpenNlpLemmatizer fromModels(Path posModelPath, Path lemmatizerModelPath, Path dictPath) {
+        return fromModels(posModelPath, lemmatizerModelPath, dictPath, false);
+    }
+
+    /** As {@link #fromModels(Path, Path, Path)} choosing whether to keep the model's native tagset. */
+    public static OpenNlpLemmatizer fromModels(Path posModelPath, Path lemmatizerModelPath, Path dictPath,
+                                               boolean nativePosTags) {
         return new OpenNlpLemmatizer(
             load(posModelPath, POSModel::new, "POS"),
             load(lemmatizerModelPath, LemmatizerModel::new, "lemmatizer"),
-            dictPath == null ? null : FstPosDictionaryLemmatizer.fromFile(dictPath));
+            dictPath == null ? null : FstPosDictionaryLemmatizer.fromFile(dictPath),
+            nativePosTags);
     }
 
     /** Wrap {@code input} with the OpenNLP POS tagger followed by the lemmatizer. */
     public TokenStream apply(TokenStream input) {
-        var tagged = new OpenNLPPOSFilter(input, new NLPPOSTaggerOp(posModel));
+        // Lucene's NLPPOSTaggerOp hard-codes POSTagFormat.PENN; for a non-Penn model (e.g. UPOS+gender)
+        // use a CUSTOM-format tagger so the dictionary sees the tags the model actually emits.
+        var posOp = nativePosTags ? new NativeFormatPosTaggerOp(posModel) : new NLPPOSTaggerOp(posModel);
+        var tagged = new OpenNLPPOSFilter(input, posOp);
         if (lemmaDictionary != null) {
             // POS-aware: shared dictionary first, MaxEnt model fallback
             return new OpenNlpPosLemmatizerFilter(tagged, lemmaDictionary, lemmatizerModel);
@@ -119,6 +147,27 @@ public final class OpenNlpLemmatizer {
             return factory.create(in);
         } catch (IOException e) {
             throw new UncheckedIOException("Cannot load OpenNLP " + kind + " model from " + path, e);
+        }
+    }
+
+    /**
+     * A {@link NLPPOSTaggerOp} that emits the POS model's <b>native</b> tagset. Lucene's stock
+     * {@code NLPPOSTaggerOp} builds {@code new POSTaggerME(model, POSTagFormat.PENN)}, coercing every
+     * tag to the Penn tagset — which silently mangles a UD/UPOS(+gender) model ({@code NOUN.Masc} →
+     * {@code ?}). This subclass tags with {@link POSTagFormat#CUSTOM} so the dictionary receives the
+     * tags the model was trained to produce. The superclass still builds its (unused) Penn tagger.
+     */
+    private static final class NativeFormatPosTaggerOp extends NLPPOSTaggerOp {
+        private final POSTaggerME nativeTagger;
+
+        NativeFormatPosTaggerOp(POSModel model) {
+            super(model);
+            this.nativeTagger = new POSTaggerME(model, POSTagFormat.CUSTOM);
+        }
+
+        @Override
+        public synchronized String[] getPOSTags(String[] sentence) {
+            return nativeTagger.tag(sentence);
         }
     }
 }
