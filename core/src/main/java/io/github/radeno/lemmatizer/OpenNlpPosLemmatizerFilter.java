@@ -1,6 +1,7 @@
 package io.github.radeno.lemmatizer;
 
 import java.io.IOException;
+import java.util.Map;
 
 import opennlp.tools.lemmatizer.Lemmatizer;
 import opennlp.tools.lemmatizer.LemmatizerME;
@@ -27,6 +28,16 @@ final class OpenNlpPosLemmatizerFilter extends TokenFilter {
 
     private static final String UNKNOWN = "O"; // OpenNLP's "not found" marker
 
+    // The dictionary may be keyed on any tagset the upstream POS model emits (Penn NN/VB… or a finer
+    // UPOS+gender NOUN.Masc…). The MaxEnt lemmatizer model, however, was trained on the Penn tagset, so
+    // before the model fallback we normalise a UPOS(.feature) tag to its Penn equivalent — otherwise the
+    // model receives a tag it never saw and mangles the word. Penn tags pass through unchanged.
+    private static final Map<String, String> UPOS_TO_PENN = Map.ofEntries(
+        Map.entry("NOUN", "NN"), Map.entry("PROPN", "NN"), Map.entry("VERB", "VB"), Map.entry("AUX", "VB"),
+        Map.entry("ADJ", "JJ"), Map.entry("ADV", "RB"), Map.entry("ADP", "IN"), Map.entry("CCONJ", "CC"),
+        Map.entry("SCONJ", "IN"), Map.entry("NUM", "CD"), Map.entry("PRON", "PRP"), Map.entry("DET", "PRP"),
+        Map.entry("PART", "RB"), Map.entry("INTJ", "UH"), Map.entry("X", "NN"), Map.entry("SYM", "NN"));
+
     private final Lemmatizer dictionary;
     private final LemmatizerME model;
     private final CharTermAttribute termAttr = addAttribute(CharTermAttribute.class);
@@ -34,6 +45,7 @@ final class OpenNlpPosLemmatizerFilter extends TokenFilter {
     private final KeywordAttribute keywordAttr = addAttribute(KeywordAttribute.class);
     private final String[] word = new String[1];
     private final String[] tag = new String[1];
+    private final String[] fallbackTag = new String[1];
 
     OpenNlpPosLemmatizerFilter(TokenStream input, Lemmatizer dictionary, LemmatizerModel model) {
         super(input);
@@ -53,7 +65,8 @@ final class OpenNlpPosLemmatizerFilter extends TokenFilter {
         tag[0] = typeAttr.type();
         String lemma = dictionary.lemmatize(word, tag)[0]; // shared dictionary first
         if (isBlank(lemma)) {
-            lemma = model.lemmatize(word, tag)[0];         // MaxEnt model fallback
+            fallbackTag[0] = toPennTag(tag[0]);            // normalise tag for the Penn-trained model
+            lemma = model.lemmatize(word, fallbackTag)[0]; // MaxEnt model fallback
         }
         if (!isBlank(lemma)) {
             termAttr.setEmpty().append(lemma);
@@ -63,5 +76,15 @@ final class OpenNlpPosLemmatizerFilter extends TokenFilter {
 
     private static boolean isBlank(String lemma) {
         return lemma == null || lemma.isEmpty() || UNKNOWN.equals(lemma) || "_".equals(lemma);
+    }
+
+    /** Map a UPOS(.feature) tag (e.g. {@code NOUN.Masc}) to its Penn equivalent; Penn tags pass through. */
+    private static String toPennTag(String tag) {
+        if (tag == null || tag.isEmpty()) {
+            return tag;
+        }
+        int dot = tag.indexOf('.');
+        String upos = dot >= 0 ? tag.substring(0, dot) : tag;
+        return UPOS_TO_PENN.getOrDefault(upos, tag);
     }
 }

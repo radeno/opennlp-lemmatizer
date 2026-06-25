@@ -155,6 +155,24 @@ Reproduction assets were in `/tmp` this session (`UdpipeTag`, `EvalGender`, `Rea
 `realtest.tsv`); UD-SNK via `fetch-models.sh sk-ud`, MTE-1984 at CLARIN handle 11356/1043, Leipzig raw
 corpora at downloads.wortschatz-leipzig.de, teacher = `experiments/udpipe` (slovak-snk).
 
+**Node deployment attempt — BLOCKED by a model-resolution bug (needs investigation).** We then tried
+deploying it for real on OpenSearch: built a gender-keyed FST dict (form + `UPOS.gender` → lemma, the
+homonyms now split: `hrady`→`NOUN.Masc:hrad`/`NOUN.Fem:hrada`), trained a **lowercased** gender model
+(so the `lowercase`-composed pipeline matches), and added a fallback-tag normaliser to
+`OpenNlpPosLemmatizerFilter` (maps `NOUN.Masc`→`NN` before the Penn-trained lemmatizer model — committed,
+correct, and needed). The clever part: no new filter — the generic `pos_dictionary_lemmatizer` takes
+any `pos_model` + `dictionary`. **Offline it works perfectly** (`FstPosDictionaryLemmatizer` + the
+gender model resolves `hrady→hrad/hrada`, `jablká→jablko`, `pijú→piť`, all correct). **On the node it
+does not:** the gender model POS-tags with *Penn* tags (`RB`/`VB`) that the model does not even contain
+— proven exhaustively: training data has 0 Penn tags, the model emits only `UPOS.gender` offline, the
+node-copied-back `.bin` is byte-identical (md5) and emits gender offline, yet the node emits `RB`/`VB`
+even via the pure `opennlp_lemmatizer`, with a fresh model name, after a clean restart. So Lucene's
+`lucene-analysis-opennlp` (`NLPPOSTaggerOp`/`OpenNLPOpsFactory`) appears to resolve/cache a *different*
+(Penn `sk-pos.bin`) POSModel than the one we pass. **Next step for a future session:** test on a clean
+node where `sk-pos.bin` is never loaded (cache hypothesis), or inspect `OpenNLPOpsFactory`'s static
+model cache / how `OpenNlpLemmatizer` hands the model to `NLPPOSTaggerOp`. The `toPennTag` fallback fix
+is already committed and benign for the existing Penn path.
+
 ## Reference numbers (this session, OS 3.7.0)
 
 | filter | tok/s (best-of-5, 4490 tok, `_analyze`) | heap (926k dict, microbench) |
