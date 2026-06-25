@@ -19,12 +19,18 @@ unless noted.
   still wins decisively on everything contextual (homonyms `je → byť` 12×, prepositions `do`, `pri`,
   case, foreign words). See S→idea **I1** for a possible fix.
 
-### S2. MULTEXT-East single-lemma collapse can pick a non-nominative lemma
-- **Symptom:** `hradu → hrada`, `hrady → hrada` (should be `hrad`), while `hrade/hradom/hradoch → hrad`
-  are correct. Inconsistent within one paradigm.
-- **Cause:** `fetch-models.sh -mte-pos` keeps one lemma per `(form, POS)`; for these forms the source
-  lemma column is `hrada` (a genitive used as the citation form in MTE for that reading).
-- **Impact:** a few wrong lemmas. See idea **I2**.
+### S2. Gender-homonyms drop out of the dictionary and the model misguesses them
+- **Symptom:** `hrady → hrada`, `hradu → hrada` (should be `hrad`). Also `autom → aut` (should be
+  `auto`), `banku → bank` (should be `banka`), etc.
+- **Cause (verified in raw MTE):** the form is genuinely two words distinguished only by **gender** —
+  `hrady` is masculine `hrad` (`Ncmp…`) *and* feminine `hrada` (`Ncfp…`); both map to Penn `NN`. So
+  `(hrady, NN)` has two lemmas → `-mte-pos`'s single-lemma rule **drops it**, and at runtime the MaxEnt
+  model fills the gap and guesses the wrong one. The OpenNLP tagset (`NN`) is coarser than the MSD —
+  it carries no gender — so part of speech cannot disambiguate these.
+- **Scope:** ~**1,025 common-word** gender-homonyms in the Slovak dictionary (plus 97 proper-name
+  pairs), not just `hrad`. Many are meaningful (`auto`/`aut`, `banka`/`bank`, `axióma`/`axióm`).
+- **Impact + fix:** see section **G** below — the practical fix is a frequency-preferring collapse
+  (**I2**), not gender tagging (empirically capped at ~87%, see **G**).
 
 ### S3. MTE casing/coverage gaps (data, not a bug)
 - **Symptom:** proper nouns MTE only knows as common nouns lemmatize lowercase (`Tatry → tatra`);
@@ -50,10 +56,13 @@ the `FstPosDictionaryLemmatizer` key), instead of an upstream `lowercase` filter
 filter case-insensitive on lookup again, but keep lemma-case output. Re-run the 104-sentence test to
 confirm it fixes `Hostia → hosť` without regressing proper nouns.
 
-### I2. Smarter collapse heuristic (addresses S2)
-In `fetch-models.sh -mte-pos`, when a `(form, POS)` still maps to several lemmas, prefer the
-nominative / shortest / most-frequent lemma rather than dropping or taking the source order. Could
-also reconcile across the paradigm (if most forms of a lemma point to `hrad`, prefer `hrad`).
+### I2. Frequency-preferring collapse (addresses S2) — recommended fix
+In `fetch-models.sh -mte-pos`, when a `(form, POS)` maps to several lemmas, **keep the most frequent
+lemma** instead of dropping it. For ~all of the ~1,025 gender-homonyms one sense dominates
+(`auto` ≫ `aut`, `banka` ≫ `bank`, `hrad` ≫ `hrada`), so this recovers the common reading correctly
+at near-zero cost — and **beats gender tagging**, which section **G** shows is capped at ~87% even
+with UDPipe. Risk: picks the dominant lemma when the rare sense is actually meant; tune the frequency
+proxy (MTE entry count vs a corpus count) and re-run the 104-sentence test.
 
 ### I3. Optional proper-noun gazetteer overlay (addresses S3)
 Layer a small curated proper-noun list (Tatry, Karpaty, Ružinov, …) over the MTE dictionary so known
@@ -81,6 +90,65 @@ Ship as its own plugin (CC BY-NC-SA models), not in the Apache pure-Java plugin.
 Node `_analyze` numbers include HTTP + JSON overhead and are single-threaded, so absolute tok/s is
 noisy (especially for the fast flat filters). For trustworthy numbers use bulk-index timing or an
 in-JVM/JMH harness against the analyzer directly.
+
+## G. Gender disambiguation — investigation, distillation & real-world test
+
+**Problem.** ~1,025 common Slovak words are gender-homonyms that the coarse OpenNLP `NN` tag cannot
+disambiguate (S2): `hrady` = `hrad`(m)/`hrada`(f), `autom` = `auto`(n)/`aut`(m), `banku` =
+`banka`(f)/`bank`(m), … The dictionary drops them and the model misguesses. Fixing them "properly"
+needs a tagger that emits **grammatical gender**, which OpenNLP's tagset doesn't.
+
+**Can we train an OpenNLP tagger to emit gender?** Tried it. Tagset = UPOS+Gender (`NOUN.Masc/Fem/Neut`),
+trained with the OpenNLP CLI `POSTaggerTrainer`, evaluated on the UD Slovak-SNK gold test:
+
+| training data | tokens | overall tag acc | **gender acc** |
+|---|---|---|---|
+| UD Slovak-SNK (gold) | 80k | 83.8% | 80.5% |
+| + MTE-1984 corpus (gold) | 184k | 82.6% | 82.5% |
+| UDPipe-tagged Wikipedia (silver, distillation) | 1.13M | 87.6% | 85.8% |
+| silver + gold | 1.31M | 88.0% | **86.2%** |
+| **UDPipe itself (teacher ceiling)** | — | — | **87.25%** |
+
+**Distillation works.** Using UDPipe to tag a large raw corpus → training OpenNLP on the silver took
+pure-Java OpenNLP from 80.5% → **86.2%** gender, **~1 point off the UDPipe teacher (87.25%)** — nearly
+saturating the teacher, with **no native dependency at runtime**.
+
+**Real-world test (the one that matters).** Accuracy alone is misleading: what counts is gender-dict
+vs the *current* behaviour. We built a gender-keyed noun dict from MTE and ran 35 sentences containing
+gender-homonyms (`auto`/`aut`, `banka`/`bank`, `hrad`/`hrada`, `more`/`mor`, …), comparing the lemma
+each approach gives the target word:
+
+| approach | correct | |
+|---|---|---|
+| current (coarse POS → model fallback) | 27/35 | **77%** |
+| frequency collapse using **MTE entry counts** | 26/35 | 74% (worse!) |
+| **distilled gender tagger → gender dict** | 30/35 | **86%** |
+
+**Corrected verdict (supersedes the pessimistic read above).**
+- **Gender wins in reality: 86% vs 77% (+9 pts)** on the homonym class. It fixed `hrady→hrad`,
+  `banku→banka`, `mena→mena`, `diel→diel`, `repy→repa`. The "~87% ceiling → not enough" argument was
+  *wrong* for this use case: the baseline (model fallback) is only 77% on these hard words, so even an
+  imperfect gender tagger is a net improvement.
+- It also *introduced* a couple of regressions where the tagger mis-genders a common word
+  (`autom→aut`, `more→mor`) — net +3. A larger/cleaner silver set should shrink these (see below).
+- **Frequency collapse with MTE entry counts is a bad idea** (74%, worse than doing nothing): MTE
+  paradigm-entry counts are not corpus frequency (`hrady→hrada`, `lese→lesa`). Revised **I2**: a
+  frequency collapse needs a *real corpus* frequency list (e.g. counted from the UDPipe-lemmatised
+  silver Wikipedia), not MTE counts.
+
+**So gender distillation is a viable, net-positive improvement** for the ~1,025-form homonym class —
+worth a real module + `_analyze` node test *if those words matter* (it is still only ~0.12% of the
+dictionary, and needs the distillation pipeline + a new gender-keyed FST dict + a custom filter).
+
+**Caveat — the silver set was truncated.** UDPipe segfaulted (SIGSEGV in `libudpipe_java.dylib`'s
+`pipeline::process`) after ~70k of the 300k Wikipedia sentences (~1.13M tokens). The 86.2%/86% numbers
+are from that partial set. Tagging the full 300k+ (process in chunks via separate JVMs so one bad input
+doesn't kill the run, or larger raw corpora — Leipzig `slk-sk_web_2015_1M`, FineWeb2) should raise the
+distilled tagger and shrink the `autom→aut` / `more→mor` regressions. **Not yet retried at scale.**
+
+Reproduction assets were in `/tmp` this session (`UdpipeTag`, `EvalGender`, `RealEval`, the 35-sentence
+`realtest.tsv`); UD-SNK via `fetch-models.sh sk-ud`, MTE-1984 at CLARIN handle 11356/1043, Leipzig raw
+corpora at downloads.wortschatz-leipzig.de, teacher = `experiments/udpipe` (slovak-snk).
 
 ## Reference numbers (this session, OS 3.7.0)
 
