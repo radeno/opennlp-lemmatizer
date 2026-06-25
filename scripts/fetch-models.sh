@@ -134,6 +134,16 @@ with open(out, "w", encoding="utf-8") as g:
 sys.stderr.write("  kept %d disambiguating (form,POS), dropped %d ambiguous, %d single-lemma(*) rows\n"
                  % (kept, excluded, relaxed))
 PY
+  # Merge corpus-frequency homonym resolutions (recovers dropped ambiguous: hradu->hrad, hostia->hosť).
+  # Auto-uses the committed default; override with HOMONYMS=<file> (e.g. regenerated from your own corpus
+  # via experiments/homonym-resolution/resolve-homonyms.sh for domain-accurate frequencies).
+  script_dir="$(cd "$(dirname "$0")" && pwd)"
+  hom="${HOMONYMS:-${script_dir}/../experiments/homonym-resolution/${lang}-homonyms.txt}"
+  if [ -f "$hom" ]; then
+    cat "$hom" >> "${out}"
+    sort -u -o "${out}" "${out}"
+    echo "  merged $(wc -l < "$hom" | tr -d ' ') homonym resolutions from ${hom}"
+  fi
   echo "  -> ${out}  ($(wc -l < "${out}" | tr -d ' ') entries, $(du -h "${out}" | cut -f1))"
   echo "  format: <form>\\t<POS>\\t<lemma>, from MULTEXT-East (http://nl.ijs.si/ME/), CC BY-SA 4.0."
   echo "  Attribution: Erjavec et al., MULTEXT-East free lexicons 4.0; share-alike if you redistribute."
