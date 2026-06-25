@@ -162,16 +162,23 @@ homonyms now split: `hrady`→`NOUN.Masc:hrad`/`NOUN.Fem:hrada`), trained a **lo
 `OpenNlpPosLemmatizerFilter` (maps `NOUN.Masc`→`NN` before the Penn-trained lemmatizer model — committed,
 correct, and needed). The clever part: no new filter — the generic `pos_dictionary_lemmatizer` takes
 any `pos_model` + `dictionary`. **Offline it works perfectly** (`FstPosDictionaryLemmatizer` + the
-gender model resolves `hrady→hrad/hrada`, `jablká→jablko`, `pijú→piť`, all correct). **On the node it
-does not:** the gender model POS-tags with *Penn* tags (`RB`/`VB`) that the model does not even contain
-— proven exhaustively: training data has 0 Penn tags, the model emits only `UPOS.gender` offline, the
-node-copied-back `.bin` is byte-identical (md5) and emits gender offline, yet the node emits `RB`/`VB`
-even via the pure `opennlp_lemmatizer`, with a fresh model name, after a clean restart. So Lucene's
-`lucene-analysis-opennlp` (`NLPPOSTaggerOp`/`OpenNLPOpsFactory`) appears to resolve/cache a *different*
-(Penn `sk-pos.bin`) POSModel than the one we pass. **Next step for a future session:** test on a clean
-node where `sk-pos.bin` is never loaded (cache hypothesis), or inspect `OpenNLPOpsFactory`'s static
-model cache / how `OpenNlpLemmatizer` hands the model to `NLPPOSTaggerOp`. The `toPennTag` fallback fix
-is already committed and benign for the existing Penn path.
+gender model resolves `hrady→hrad/hrada`, `jablká→jablko`, `pijú→piť`, all correct). **Through the
+plugin it does not** — and the root cause turned out to be *intended Lucene behaviour, not a bug*:
+Lucene's `org.apache.lucene.analysis.opennlp.tools.NLPPOSTaggerOp` (used by `OpenNLPPOSFilter`, which
+`OpenNlpLemmatizer.apply` chains) constructs its tagger as **`new POSTaggerME(model, POSTagFormat.PENN)`**
+— it hard-codes Penn-format normalisation. So our `UPOS.gender` tags are coerced to Penn on the way out:
+`ADV→RB`, `VERB→VB`, and `NOUN.Fem`/`NOUN.Masc`→`?` (no Penn equivalent for a gender-augmented tag) →
+the gender dict misses on `?` and the word falls through. Verified directly: same model, same words,
+`new POSTaggerME(m).tag()` → `ADV VERB NOUN.Fem NOUN.Masc` ✓ but `new NLPPOSTaggerOp(m).getPOSTags()`
+→ `RB VB ? ?`; `POSTaggerME(m, POSTagFormat.UD|CUSTOM)` keeps the gender tags, `POSTagFormat.PENN` mangles
+them. (Thanks to the reviewer who pushed back on the "bug" framing — it's the documented `POSTagFormat`
+API.)
+
+**So a UPOS+gender tagset cannot flow through Lucene's `OpenNLPPOSFilter`.** To ship gender, the filter
+must do its own POS step — `new POSTaggerME(genderModel, POSTagFormat.CUSTOM)` (or default), write the
+tag to the `TypeAttribute` itself, then run `FstPosDictionaryLemmatizer` — instead of reusing
+`OpenNLPPOSFilter`/`NLPPOSTaggerOp`. That's the concrete fix for a future gender module. The `toPennTag`
+fallback normaliser is already committed and is correct/benign for the existing Penn path regardless.
 
 ## Reference numbers (this session, OS 3.7.0)
 
