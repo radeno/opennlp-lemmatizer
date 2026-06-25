@@ -1,6 +1,6 @@
 # Analyzer examples
 
-Ready-made index-analyzer configs for **both** filters this plugin ships, per language. Apply one
+Ready-made index-analyzer configs for the filters this plugin ships, per language. Apply one
 (after the matching files are in `config/opennlp/` — see the main [README](../README.md#models)):
 
 ```bash
@@ -10,14 +10,23 @@ curl -XPUT localhost:9200/my-index -H 'Content-Type: application/json' \
 
 | file | filter | files it loads | when |
 |---|---|---|---|
-| [cs-analyzer.json](cs-analyzer.json) | `opennlp_lemmatizer` | `cs-pos.bin` + `cs-lemmas.bin` | Czech — best quality (POS-aware) |
-| [sk-analyzer.json](sk-analyzer.json) | `opennlp_lemmatizer` | `sk-pos.bin` + `sk-lemmas.bin` | Slovak — best quality (POS-aware) |
+| [cs-analyzer.json](cs-analyzer.json) | `opennlp_lemmatizer` | `cs-pos.bin` + `cs-lemmas.bin` | Czech — best generalisation (POS-aware model) |
+| [sk-analyzer.json](sk-analyzer.json) | `opennlp_lemmatizer` | `sk-pos.bin` + `sk-lemmas.bin` | Slovak — best generalisation (POS-aware model) |
+| [sk-pos-dictionary-analyzer.json](sk-pos-dictionary-analyzer.json) | `pos_dictionary_lemmatizer` | `sk-pos.bin` + `sk-lemmas.bin` + `sk-mte-pos.txt` | Slovak — best precision on known words (POS dict + model) |
 | [cs-dictionary-analyzer.json](cs-dictionary-analyzer.json) | `dictionary_lemmatizer` | `cs-ud.txt` | Czech — max speed (flat, POS-free) |
 | [sk-dictionary-analyzer.json](sk-dictionary-analyzer.json) | `dictionary_lemmatizer` | `sk-mte.txt` | Slovak — max speed (flat, POS-free) |
+| [sk-gender-analyzer.json](sk-gender-analyzer.json) | `pos_dictionary_lemmatizer` (`pos_format: native`) | `sk-gender.bin` + `sk-lemmas.bin` + `sk-gender-dict.txt` | Slovak — disambiguates gender-homonyms (`hrady → hrad`/`hrada`); **build the model/dict first** (see below) |
 
-**Choosing the filter.** `opennlp_lemmatizer` is POS-aware — it disambiguates homonyms in context
-(`je → být`, not `jesť`) and writes the POS tag to the token's `type`, at the cost of speed.
-`dictionary_lemmatizer` is a plain `form → lemma` lookup — far faster, but no context. They are two
+> **The gender example needs models you build yourself.** `sk-gender.bin` and `sk-gender-dict.txt` are
+> not release artifacts — produce them with
+> [`experiments/gender/build-gender-model.sh`](../experiments/gender/build-gender-model.sh), then drop
+> them in `config/opennlp/`. See [experiments/gender/](../experiments/gender/README.md) for the numbers.
+
+**Choosing the filter.** `opennlp_lemmatizer` is the POS-aware MaxEnt model — it disambiguates homonyms
+in context (`je → být`, not `jesť`) and lemmatises unseen words, at the cost of speed.
+`pos_dictionary_lemmatizer` adds a POS-aware `form/POS/lemma` dictionary in front of that model for exact
+lemmas on known words (with `pos_format: native` it can use a finer UD/UPOS+gender tagset).
+`dictionary_lemmatizer` is a plain `form → lemma` lookup — far faster, but no context. They are all
 filter *types* in the same plugin; you don't install anything extra to switch.
 
 **Choosing the language file.** Nothing in the plugin is language-specific — you pick the language

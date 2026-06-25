@@ -1,0 +1,29 @@
+{
+  "settings": {
+    "index": {
+      "analysis": {
+        "filter": {
+          "sk_gender": {
+            "type": "pos_dictionary_lemmatizer",
+            "pos_model": "sk-gender.bin",
+            "lemmatizer_model": "sk-lemmas.bin",
+            "dictionary": "sk-gender-dict.txt",
+            "pos_format": "native"
+          }
+        },
+        "analyzer": {
+          "sk_gender_lemmatizer": {
+            "type": "custom",
+            "tokenizer": "standard",
+            "filter": [ "lowercase", "sk_gender" ]
+          }
+        }
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "text": { "type": "text", "analyzer": "sk_gender_lemmatizer" }
+    }
+  }
+}

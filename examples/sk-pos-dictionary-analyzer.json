@@ -1,0 +1,28 @@
+{
+  "settings": {
+    "index": {
+      "analysis": {
+        "filter": {
+          "sk_pos_dict": {
+            "type": "pos_dictionary_lemmatizer",
+            "pos_model": "sk-pos.bin",
+            "lemmatizer_model": "sk-lemmas.bin",
+            "dictionary": "sk-mte-pos.txt"
+          }
+        },
+        "analyzer": {
+          "sk_pos_dictionary": {
+            "type": "custom",
+            "tokenizer": "standard",
+            "filter": [ "lowercase", "sk_pos_dict" ]
+          }
+        }
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "text": { "type": "text", "analyzer": "sk_pos_dictionary" }
+    }
+  }
+}
