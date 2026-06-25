@@ -24,6 +24,7 @@ lookup) for when raw speed matters more than disambiguation — see [Use](#use).
 | `opensearch/` | `opensearch-analysis-opennlp-lemmatizer` | OpenSearch 3.7 plugin |
 | `elasticsearch/` | `elasticsearch-analysis-opennlp-lemmatizer` | Elasticsearch 9.4 plugin |
 | `experiments/udpipe/` | — | research PoC: UDPipe (higher quality, native JNI). See [its README](experiments/udpipe/README.md). |
+| `experiments/gender/` | — | research PoC: distilled UPOS+gender tagger to disambiguate gender-homonyms. See [its README](experiments/gender/README.md). |
 
 Both plugins are thin wrappers over the same `core` engine; only the platform glue differs.
 
@@ -240,6 +241,11 @@ curl -XPOST localhost:9200/_analyze -H 'Content-Type: application/json' -d '{
 > put a `lowercase` filter ahead of it for case-insensitive matching. The stored lemma keeps its case,
 > so proper nouns MULTEXT-East knows stay capitalised (`Bratislave → Bratislava`, `Dunaji → Dunaj`).
 > Words MTE only knows as common nouns, or doesn't know, fall back to the (lower-cased) model lemma.
+>
+> **`pos_format` (advanced).** Defaults to `penn` — Lucene normalises the POS model's tags to the Penn
+> tagset, which the MTE dictionaries above expect. Set `pos_format: native` to keep a model's own
+> tagset (UD/UPOS, or a UPOS+gender model) so the dictionary can key on it — used to disambiguate Slovak
+> gender-homonyms (`hrady → hrad`/`hrada`); see [experiments/gender/](experiments/gender/README.md).
 
 ## OpenNLP vs jLemmaGen
 

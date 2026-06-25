@@ -1,0 +1,26 @@
+{
+  "//": "Index analyzer using the distilled UPOS+gender POS model to disambiguate Slovak gender-homonyms.",
+  "//models": "Place sk-gender.bin, sk-lemmas.bin and sk-gender-dict.txt under <config>/opennlp/ (build them with build-gender-model.sh).",
+  "settings": {
+    "index": {
+      "analysis": {
+        "analyzer": {
+          "sk_gender": {
+            "type": "custom",
+            "tokenizer": "standard",
+            "filter": ["lowercase", "sk_gender_lemmas"]
+          }
+        },
+        "filter": {
+          "sk_gender_lemmas": {
+            "type": "pos_dictionary_lemmatizer",
+            "pos_model": "sk-gender.bin",
+            "lemmatizer_model": "sk-lemmas.bin",
+            "dictionary": "sk-gender-dict.txt",
+            "pos_format": "native"
+          }
+        }
+      }
+    }
+  }
+}
