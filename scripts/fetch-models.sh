@@ -117,19 +117,21 @@ with open(src, encoding="utf-8") as f:
 kept = excluded = relaxed = 0
 with open(out, "w", encoding="utf-8") as g:
     for (form, pos) in sorted(fp):
+        if len(fa[form]) == 1:               # single-lemma form -> covered by its `*` row below (no
+            continue                         # per-POS rows, so the file stays ~the same size)
         lemmas = fp[(form, pos)]
-        if len(lemmas) == 1:                 # unambiguous (form, POS) -> keep; else leave it to the model
+        if len(lemmas) == 1:                 # multi-lemma form, this POS unambiguous -> keep (disambiguates)
             g.write(form + "\t" + pos + "\t" + next(iter(lemmas)) + "\n")
             kept += 1
         else:
-            excluded += 1
-    # POS-relax: a `form<TAB>*<TAB>lemma` row for every form with ONE lemma across all its readings, so
-    # the filter recovers the lemma when the POS tagger mis-tags such a form (e.g. saunu tagged a verb).
+            excluded += 1                    # ambiguous (form, POS) -> dropped (left to the model)
+    # POS-relax: one `form<TAB>*<TAB>lemma` row per form with ONE lemma across all its readings, so the
+    # filter recovers the lemma when the POS tagger mis-tags such a form (e.g. saunu tagged a verb).
     for form in sorted(fa):
         if len(fa[form]) == 1:
             g.write(form + "\t*\t" + next(iter(fa[form])) + "\n")
             relaxed += 1
-sys.stderr.write("  kept %d (form,POS) entries, dropped %d ambiguous, %d POS-relax(*) rows\n"
+sys.stderr.write("  kept %d disambiguating (form,POS), dropped %d ambiguous, %d single-lemma(*) rows\n"
                  % (kept, excluded, relaxed))
 PY
   echo "  -> ${out}  ($(wc -l < "${out}" | tr -d ' ') entries, $(du -h "${out}" | cut -f1))"
