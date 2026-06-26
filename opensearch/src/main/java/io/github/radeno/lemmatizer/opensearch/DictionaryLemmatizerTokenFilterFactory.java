@@ -9,7 +9,8 @@ import org.opensearch.index.IndexSettings;
 import org.opensearch.index.analysis.AbstractTokenFilterFactory;
 
 /**
- * OpenSearch token filter that lemmatizes tokens by flat dictionary lookup (fast, POS-free).
+ * OpenSearch token filter that lemmatizes tokens by flat FST dictionary lookup (fast, POS-free,
+ * low-memory).
  *
  * <p>Loads a {@code form<TAB>lemma} dictionary from {@code <config>/opennlp/}. Required setting:
  * {@link DictionaryLemmatizer#DICTIONARY_SETTING} (the dictionary file name).

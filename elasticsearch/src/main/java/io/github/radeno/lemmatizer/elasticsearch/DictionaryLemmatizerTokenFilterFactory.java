@@ -9,7 +9,8 @@ import org.elasticsearch.index.IndexSettings;
 import org.elasticsearch.index.analysis.AbstractTokenFilterFactory;
 
 /**
- * Elasticsearch token filter that lemmatizes tokens by flat dictionary lookup (fast, POS-free).
+ * Elasticsearch token filter that lemmatizes tokens by flat FST dictionary lookup (fast, POS-free,
+ * low-memory).
  *
  * <p>Loads a {@code form<TAB>lemma} dictionary from {@code <config>/opennlp/}. Required setting:
  * {@link DictionaryLemmatizer#DICTIONARY_SETTING} (the dictionary file name).

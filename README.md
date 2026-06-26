@@ -170,7 +170,8 @@ Full index-analyzer settings per language: [examples/cs-analyzer.json](examples/
 
 ### Dictionary lemmatizer (fast, POS-free)
 
-A second filter, `dictionary_lemmatizer`, does a plain `form → lemma` lookup from a flat dictionary.
+A second filter, `dictionary_lemmatizer`, does a plain `form → lemma` lookup from a flat dictionary
+(stored, like the POS-aware one, in a compact **Lucene FST** — a few MB for the whole Slovak lexicon).
 It fills the same role as the popular
 [jLemmaGen / `vhyza/elasticsearch-analysis-lemmagen`](https://github.com/vhyza/elasticsearch-analysis-lemmagen)
 plugin — fast, flat, **no part of speech** — but backed by **richer dictionaries** (922k-form
