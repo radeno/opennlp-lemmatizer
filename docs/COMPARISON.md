@@ -1,6 +1,6 @@
 # Lemmatizer comparison (Czech / Slovak)
 
-How this repo's two filters compare with the deployed jLemmaGen plugin and UDPipe, for Czech/Slovak
+How this repo's three filters compare with the deployed jLemmaGen plugin and UDPipe, for Czech/Slovak
 lemmatization in OpenSearch / Elasticsearch.
 
 Engines:
@@ -15,6 +15,10 @@ Engines:
   authoritative morphological lexicon michmech itself was derived from, widest coverage (Slovak 922k
   forms); and **Universal Dependencies** (`-ud`, gold treebank lemmas, best for Czech's huge PDT).
   Rule of thumb: **Slovak → MTE, Czech → UD.**
+- **`pos_dictionary_lemmatizer`** (this repo) — POS-aware FST dictionary (`form + POS → lemma`,
+  MULTEXT-East) consulted first, OpenNLP MaxEnt model as fallback. Resolves homonyms the flat dictionary
+  cannot (`hradu → hrad`, not `hrada`) while staying tiny in memory (the FST is ~1 MB). The recommended
+  Slovak filter; see [IMPROVEMENTS.md](IMPROVEMENTS.md).
 - **UDPipe** — full morphological tagger (ÚFAL), native C++/JNI. See [`../experiments/udpipe/`](../experiments/udpipe/).
 
 ## Verified: `dictionary_lemmatizer` vs the *deployed* jLemmaGen plugin
@@ -109,35 +113,56 @@ What it shows:
   upstream `lowercase` filter it handles capitalisation (`Včera → včera`, which jLemmaGen mangles) and
   never invents a wrong stem the way a bad rule does.
 
-## Throughput
+## Throughput and memory (measured on OpenSearch 3.7)
 
-Two measurements, because *where* you measure changes the number.
+All four filters configured as *index* analyzers (so the filter loads once per shard, not per request)
+and driven with a ~370-token Slovak request; memory is the retained heap of one loaded copy. Measured
+2026-06, after the M1/M2 optimisations (see [IMPROVEMENTS.md](IMPROVEMENTS.md)).
 
-**Library microbenchmark** (`core`, steady state, no HTTP) — the pure per-token cost:
+| filter | tokens/sec | rel. | ms/call | memory / copy | shared across indices? |
+|---|---:|---:|---:|---:|---|
+| jLemmaGen (deployed plugin) | ~252,000 | 1.00× | 1.5 | ~18 MB | no (separate plugin) |
+| `dictionary_lemmatizer` | ~234,000 | 0.93× | 1.6 | **~106 MB** | **yes** — node-wide cache (M1) |
+| `pos_dictionary_lemmatizer` | ~54,000 | 0.22× | 6.8 | ~8 MB | **yes** — node-wide cache (M1) |
+| `opennlp_lemmatizer` | ~7,900 | 0.03× | 47 | ~7 MB | **yes** — node-wide cache (M1) |
 
-| engine | tokens/sec |
+**Speed.** The flat-lookup filters (`dictionary`, jLemmaGen) are pure hash lookups → fastest, near-equal.
+`pos_dictionary_lemmatizer` pays the MaxEnt POS tagger but the FST answers ~98 % of tokens, so it is
+**~7× faster than the model-only `opennlp_lemmatizer`** (which runs the MaxEnt *lemmatizer* for every
+token). POS-awareness costs ~4–5× the throughput of a flat lookup — the price of splitting homonyms and
+normalising case.
+
+**Memory — the surprise is the inversion.** The "simple, fast" flat `dictionary_lemmatizer` is the
+**memory hog at ~106 MB**, while the richer POS-aware `pos_dictionary_lemmatizer` (form **+ POS**) costs
+only ~8 MB:
+
+| backing store | Slovak retained heap |
 |---|---:|
-| dictionary / jLemmaGen (flat lookup) | ~5,000,000 |
-| `opennlp_lemmatizer` (MaxEnt POS per token) | ~3,300 |
-| UDPipe (native) | ~10,000–200,000 |
+| FST (`pos_dictionary`, form+POS) | **~1 MB** |
+| CharArrayMap (`dictionary`, flat) | **~106 MB** |
+| 2 MaxEnt models (POS + lemmatizer) | ~7 MB |
+| jLemmaGen RDR rules | ~18 MB |
 
-**Real node** (OpenSearch 3.7, `_analyze` through a configured *index analyzer* so the filter loads
-once), ~900-token request:
+The **FST is ~100× more compact than the CharArrayMap for the same data** — it shares prefixes and
+suffixes across the whole dictionary, whereas the flat map stores every form and lemma as a separate
+`char[]`/`String`.
 
-| filter | tokens/sec | note |
-|---|---:|---|
-| baseline (no filter) | ~530,000 | HTTP + tokenizer ceiling |
-| `dictionary_lemmatizer` | ~410,000 | HTTP-bound — as fast as it gets |
-| jLemmaGen (deployed plugin) | ~320,000 | HTTP-bound |
-| `opennlp_lemmatizer` | ~12,000 | POS tagger per token |
+**De-duplication (M1).** A token-filter factory is built per *(index, filter)*. All three filters in this
+repo cache their backing artifact node-wide (keyed by path+size+mtime), so N indices on the same files
+share **one** copy — measured: 6 indices on the ~106 MB `dictionary_lemmatizer` cost **2 MB total** (one
+shared CharArrayMap) instead of ~565 MB, i.e. ~0.4 MB per extra index. Without the cache the flat
+dictionary was the worst offender (each index a full ~106 MB copy); it now matches the others. jLemmaGen
+(a separate plugin) is not cached, so it still loads per index.
 
-The flat-lookup filters (dictionary, jLemmaGen) are so fast they hit the request ceiling — equal in
-practice. `opennlp_lemmatizer` is ~30× slower *even with HTTP overhead masking the others*; in the
-indexing pipeline (no per-doc HTTP) the gap widens toward the library ratio.
+> **Measurement notes.** Throughput is from the live node through a configured index analyzer. Memory is
+> the clean retained heap of each backing structure (the node baseline already pre-loads the OpenNLP
+> models, and one CharArrayMap per test index exhausts a 1 GB heap); it agrees with the node — pre-M1 the
+> node showed ~7.4 MB per `pos_dictionary` copy (offline ~8 MB) and ~94 MB per `dictionary` copy (offline
+> ~106 MB). An *inline* filter in `_analyze` rebuilds the analyzer per request, re-loading the model every
+> call (~340 ms for the 21 MB dictionary) — always benchmark through an index analyzer.
 
-> **Pitfall.** An *inline* filter in `_analyze` rebuilds the analyzer per request, so it re-loads the
-> dictionary/model every call — the 21 MB MTE dictionary cost ~340 ms/call that way. Always
-> run (and benchmark) through a configured index analyzer, where the filter loads once per shard.
+For older steady-state library microbenchmarks (no HTTP): flat lookup ~5M tokens/sec, `opennlp_lemmatizer`
+~3,300 tokens/sec, UDPipe ~10k–200k.
 
 ## Choosing
 

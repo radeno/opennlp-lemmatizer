@@ -6,9 +6,7 @@ import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.attribute.BasicFileAttributes;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.Function;
 
 import opennlp.tools.lemmatizer.Lemmatizer;
 import opennlp.tools.lemmatizer.LemmatizerModel;
@@ -54,19 +52,12 @@ public final class OpenNlpLemmatizer {
      */
     public static final String POS_FORMAT_SETTING = "pos_format";
 
-    // Node-wide dedup caches. A token-filter factory is instantiated per (index, filter), so without
-    // sharing the same model/dictionary files are parsed into a fresh copy each time — the same
-    // sk-mte-pos.txt easily ends up loaded into several FSTs on one node. The plugin is loaded once per
-    // node in its own classloader, so these static maps are shared across every index on the node. Each
-    // heavy artifact (POS model, lemmatizer model, FST dictionary) is loaded once per file and reused;
-    // the cache is keyed by absolute path and revalidated on (size, lastModified) so a re-fetched file
-    // is reloaded rather than served stale. Values are immutable and thread-safe to share (the per-stream
-    // POSTaggerME/LemmatizerME wrappers are created later in apply()).
-    record Cached<V>(long size, long lastModified, V value) {} // package-private for cache tests
-
-    private static final ConcurrentHashMap<String, Cached<POSModel>> POS_MODEL_CACHE = new ConcurrentHashMap<>();
-    private static final ConcurrentHashMap<String, Cached<LemmatizerModel>> LEMMA_MODEL_CACHE = new ConcurrentHashMap<>();
-    private static final ConcurrentHashMap<String, Cached<Lemmatizer>> DICTIONARY_CACHE = new ConcurrentHashMap<>();
+    // Node-wide dedup caches (shared via the per-node plugin classloader); see {@link ModelCache}. Each
+    // heavy artifact (POS model, lemmatizer model, FST dictionary) is loaded once per file and reused
+    // across every index on the node instead of once per (index, filter).
+    private static final ConcurrentHashMap<String, ModelCache.Cached<POSModel>> POS_MODEL_CACHE = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<String, ModelCache.Cached<LemmatizerModel>> LEMMA_MODEL_CACHE = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<String, ModelCache.Cached<Lemmatizer>> DICTIONARY_CACHE = new ConcurrentHashMap<>();
 
     private final POSModel posModel;
     private final LemmatizerModel lemmatizerModel;
@@ -130,36 +121,10 @@ public final class OpenNlpLemmatizer {
     public static OpenNlpLemmatizer fromModels(Path posModelPath, Path lemmatizerModelPath, Path dictPath,
                                                boolean nativePosTags) {
         return new OpenNlpLemmatizer(
-            loadShared(POS_MODEL_CACHE, posModelPath, p -> load(p, POSModel::new, "POS")),
-            loadShared(LEMMA_MODEL_CACHE, lemmatizerModelPath, p -> load(p, LemmatizerModel::new, "lemmatizer")),
-            dictPath == null ? null : loadShared(DICTIONARY_CACHE, dictPath, FstPosDictionaryLemmatizer::fromFile),
+            ModelCache.loadShared(POS_MODEL_CACHE, posModelPath, p -> load(p, POSModel::new, "POS")),
+            ModelCache.loadShared(LEMMA_MODEL_CACHE, lemmatizerModelPath, p -> load(p, LemmatizerModel::new, "lemmatizer")),
+            dictPath == null ? null : ModelCache.loadShared(DICTIONARY_CACHE, dictPath, FstPosDictionaryLemmatizer::fromFile),
             nativePosTags);
-    }
-
-    /**
-     * Return the cached artifact for {@code path}, loading it via {@code loader} on a miss or when the
-     * file's {@code (size, lastModified)} changed since it was cached. Bounded to one live entry per
-     * path, so a re-fetched model replaces the old one rather than leaking. A cold race may load twice;
-     * that is wasted work only — the loaded artifacts are equivalent and the map converges.
-     */
-    static <V> V loadShared(ConcurrentHashMap<String, Cached<V>> cache, Path path, Function<Path, V> loader) {
-        String key = path.toAbsolutePath().normalize().toString();
-        long size;
-        long lastModified;
-        try {
-            BasicFileAttributes attrs = Files.readAttributes(path, BasicFileAttributes.class);
-            size = attrs.size();
-            lastModified = attrs.lastModifiedTime().toMillis();
-        } catch (IOException e) {
-            throw new UncheckedIOException("Cannot stat " + path, e);
-        }
-        Cached<V> hit = cache.get(key);
-        if (hit != null && hit.size() == size && hit.lastModified() == lastModified) {
-            return hit.value();
-        }
-        V value = loader.apply(path);
-        cache.put(key, new Cached<>(size, lastModified, value));
-        return value;
     }
 
     /** Wrap {@code input} with the OpenNLP POS tagger followed by the lemmatizer. */

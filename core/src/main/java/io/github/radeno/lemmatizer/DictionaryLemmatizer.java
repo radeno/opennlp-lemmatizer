@@ -6,6 +6,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Locale;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.lucene.analysis.CharArrayMap;
 import org.apache.lucene.analysis.TokenStream;
@@ -26,6 +27,11 @@ public final class DictionaryLemmatizer {
     /** Token-filter setting naming the dictionary file (in {@code <config>/opennlp/}). */
     public static final String DICTIONARY_SETTING = "dictionary";
 
+    // Node-wide dedup cache (see {@link ModelCache}). The CharArrayMap is by far the heaviest artifact
+    // here (~100 MB for the Slovak MTE dictionary), so loading it once per file rather than once per
+    // (index, filter) is the single biggest memory win for this filter.
+    private static final ConcurrentHashMap<String, ModelCache.Cached<DictionaryLemmatizer>> CACHE = new ConcurrentHashMap<>();
+
     private final CharArrayMap<String> formToLemma;
 
     private DictionaryLemmatizer(CharArrayMap<String> formToLemma) {
@@ -44,7 +50,8 @@ public final class DictionaryLemmatizer {
             throw new IllegalArgumentException(
                 "[" + filterName + "] token filter requires a '" + DICTIONARY_SETTING + "' setting");
         }
-        return fromFile(configDir.resolve(OpenNlpLemmatizer.MODELS_DIRECTORY).resolve(dictionaryFile));
+        Path path = configDir.resolve(OpenNlpLemmatizer.MODELS_DIRECTORY).resolve(dictionaryFile);
+        return ModelCache.loadShared(CACHE, path, DictionaryLemmatizer::fromFile); // share one copy node-wide
     }
 
     /** Load a {@code form<TAB>lemma} dictionary file (UTF-8, one pair per line). */
