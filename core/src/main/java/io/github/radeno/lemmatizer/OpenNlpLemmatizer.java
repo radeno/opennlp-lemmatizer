@@ -6,6 +6,8 @@ import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 import opennlp.tools.lemmatizer.Lemmatizer;
@@ -51,6 +53,18 @@ public final class OpenNlpLemmatizer {
      * degrades to model fallback. Keep {@code penn} for the standard dictionary.
      */
     public static final String POS_FORMAT_SETTING = "pos_format";
+    /**
+     * Token-filter setting turning the MaxEnt model fallback off on {@code pos_dictionary_lemmatizer}.
+     * With {@code model_fallback: false} a {@code (word, POS)} pair the dictionary does not cover leaves
+     * its token unchanged instead of being guessed by the model — a pure dictionary filter with
+     * predictable output, and {@link #LEMMATIZER_MODEL_SETTING} is then not needed. Defaults to
+     * {@code true}. Ignored by the model-only {@code opennlp_lemmatizer} filter, which has no dictionary.
+     */
+    public static final String MODEL_FALLBACK_SETTING = "model_fallback";
+
+    /** Accepted {@link #POS_FORMAT_SETTING} values, lower-cased. */
+    private static final Set<String> PENN_POS_FORMATS = Set.of("penn");
+    private static final Set<String> NATIVE_POS_FORMATS = Set.of("native", "custom");
 
     // Node-wide dedup caches (shared via the per-node plugin classloader); see {@link ModelCache}. Each
     // heavy artifact (POS model, lemmatizer model, FST dictionary) is loaded once per file and reused
@@ -60,21 +74,42 @@ public final class OpenNlpLemmatizer {
     private static final ConcurrentHashMap<String, ModelCache.Cached<Lemmatizer>> DICTIONARY_CACHE = new ConcurrentHashMap<>();
 
     private final POSModel posModel;
-    private final LemmatizerModel lemmatizerModel;
-    private final Lemmatizer lemmaDictionary; // nullable; shared, consulted before the model
-    private final boolean nativePosTags;      // true -> preserve the model's tagset (POSTagFormat.CUSTOM)
+    private final LemmatizerModel lemmatizerModel; // nullable when the model fallback is off
+    private final Lemmatizer lemmaDictionary;      // nullable; shared, consulted before the model
+    private final boolean nativePosTags;           // true -> preserve the model's tagset (POSTagFormat.CUSTOM)
+    private final boolean modelFallback;           // false -> dictionary misses leave the token unchanged
 
     private OpenNlpLemmatizer(POSModel posModel, LemmatizerModel lemmatizerModel,
-                              Lemmatizer lemmaDictionary, boolean nativePosTags) {
+                              Lemmatizer lemmaDictionary, boolean nativePosTags, boolean modelFallback) {
         this.posModel = posModel;
         this.lemmatizerModel = lemmatizerModel;
         this.lemmaDictionary = lemmaDictionary;
         this.nativePosTags = nativePosTags;
+        this.modelFallback = modelFallback;
     }
 
-    /** Whether {@code value} requests the model's native tagset rather than Penn normalisation. */
-    public static boolean isNativePosFormat(String value) {
-        return value != null && (value.equalsIgnoreCase("native") || value.equalsIgnoreCase("custom"));
+    /**
+     * Whether {@code value} requests the model's native tagset rather than Penn normalisation.
+     * {@code null}/blank means the {@code penn} default.
+     *
+     * @throws IllegalArgumentException on any other value — an unrecognised {@code pos_format} used to
+     *     fall through to {@code penn} silently, which degrades a native-tagged dictionary to 100 %
+     *     model fallback (see {@link #POS_FORMAT_SETTING})
+     */
+    public static boolean isNativePosFormat(String filterName, String value) {
+        if (value == null || value.isBlank()) {
+            return false;
+        }
+        String normalised = value.toLowerCase(Locale.ROOT);
+        if (NATIVE_POS_FORMATS.contains(normalised)) {
+            return true;
+        }
+        if (PENN_POS_FORMATS.contains(normalised)) {
+            return false;
+        }
+        throw new IllegalArgumentException("[" + filterName + "] unknown '" + POS_FORMAT_SETTING + "' value ["
+            + value + "]; expected one of [penn, native, custom]. Use 'native' to keep a UD/UPOS model's"
+            + " own tags — the dictionary's POS column must then match that tagset");
     }
 
     /**
@@ -87,44 +122,78 @@ public final class OpenNlpLemmatizer {
      */
     public static OpenNlpLemmatizer fromConfig(String filterName, Path configDir,
                                                String posModelFile, String lemmatizerModelFile) {
-        return fromConfig(filterName, configDir, posModelFile, lemmatizerModelFile, null, false);
+        // validated here rather than below, where the message would offer a dictionary this filter has no
+        // setting for
+        if (isBlank(posModelFile) || isBlank(lemmatizerModelFile)) {
+            throw new IllegalArgumentException("[" + filterName + "] token filter requires both '"
+                + POS_MODEL_SETTING + "' and '" + LEMMATIZER_MODEL_SETTING + "' settings");
+        }
+        return fromConfig(filterName, configDir, posModelFile, lemmatizerModelFile, null, false, true);
     }
 
     /**
      * As {@link #fromConfig(String, Path, String, String)} plus a {@code form<TAB>POS<TAB>lemma}
      * dictionary consulted before the model. Used by the {@code pos_dictionary_lemmatizer} factory.
-     * {@code nativePosTags} preserves the POS model's own tagset (see {@link #POS_FORMAT_SETTING}).
+     * {@code nativePosTags} preserves the POS model's own tagset (see {@link #POS_FORMAT_SETTING});
+     * {@code modelFallback} keeps the MaxEnt model for dictionary misses (see
+     * {@link #MODEL_FALLBACK_SETTING}) — with it off, {@code lemmatizerModelFile} may be blank.
      */
     public static OpenNlpLemmatizer fromConfig(String filterName, Path configDir, String posModelFile,
                                                String lemmatizerModelFile, String lemmatizerDictFile,
-                                               boolean nativePosTags) {
-        if (isBlank(posModelFile) || isBlank(lemmatizerModelFile)) {
-            throw new IllegalArgumentException("[" + filterName + "] token filter requires both '"
-                + POS_MODEL_SETTING + "' and '" + LEMMATIZER_MODEL_SETTING + "' settings");
+                                               boolean nativePosTags, boolean modelFallback) {
+        if (isBlank(posModelFile)) {
+            throw new IllegalArgumentException(
+                "[" + filterName + "] token filter requires a '" + POS_MODEL_SETTING + "' setting");
+        }
+        boolean pureDictionary = !isBlank(lemmatizerDictFile) && !modelFallback;
+        if (isBlank(lemmatizerModelFile) && !pureDictionary) {
+            throw new IllegalArgumentException("[" + filterName + "] token filter requires a '"
+                + LEMMATIZER_MODEL_SETTING + "' setting (omit it only with a dictionary and '"
+                + MODEL_FALLBACK_SETTING + ": false')");
         }
         Path dir = configDir.resolve(MODELS_DIRECTORY);
         Path dictPath = isBlank(lemmatizerDictFile) ? null : dir.resolve(lemmatizerDictFile);
-        return fromModels(dir.resolve(posModelFile), dir.resolve(lemmatizerModelFile), dictPath, nativePosTags);
+        Path modelPath = isBlank(lemmatizerModelFile) ? null : dir.resolve(lemmatizerModelFile);
+        return fromModels(dir.resolve(posModelFile), modelPath, dictPath, nativePosTags, modelFallback);
     }
 
     /** Load directly from the two model file paths (no lemmatizer dictionary). */
     public static OpenNlpLemmatizer fromModels(Path posModelPath, Path lemmatizerModelPath) {
-        return fromModels(posModelPath, lemmatizerModelPath, null, false);
+        return fromModels(posModelPath, lemmatizerModelPath, null, false, true);
     }
 
     /** As {@link #fromModels(Path, Path)} with an optional {@code form<TAB>POS<TAB>lemma} dictionary. */
     public static OpenNlpLemmatizer fromModels(Path posModelPath, Path lemmatizerModelPath, Path dictPath) {
-        return fromModels(posModelPath, lemmatizerModelPath, dictPath, false);
+        return fromModels(posModelPath, lemmatizerModelPath, dictPath, false, true);
     }
 
     /** As {@link #fromModels(Path, Path, Path)} choosing whether to keep the model's native tagset. */
     public static OpenNlpLemmatizer fromModels(Path posModelPath, Path lemmatizerModelPath, Path dictPath,
                                                boolean nativePosTags) {
+        return fromModels(posModelPath, lemmatizerModelPath, dictPath, nativePosTags, true);
+    }
+
+    /**
+     * As {@link #fromModels(Path, Path, Path, boolean)} choosing whether dictionary misses fall back to
+     * the MaxEnt model. With {@code modelFallback} off and a dictionary present, {@code lemmatizerModelPath}
+     * may be {@code null} — no lemmatizer model is loaded at all.
+     *
+     * @throws IllegalArgumentException if there would be nothing to lemmatise with (no dictionary and no model)
+     */
+    public static OpenNlpLemmatizer fromModels(Path posModelPath, Path lemmatizerModelPath, Path dictPath,
+                                               boolean nativePosTags, boolean modelFallback) {
+        if (dictPath == null && (lemmatizerModelPath == null || !modelFallback)) {
+            throw new IllegalArgumentException(
+                "a lemmatizer model is required when there is no dictionary to fall back on");
+        }
+        boolean loadModel = lemmatizerModelPath != null && (modelFallback || dictPath == null);
         return new OpenNlpLemmatizer(
             ModelCache.loadShared(POS_MODEL_CACHE, posModelPath, p -> load(p, POSModel::new, "POS")),
-            ModelCache.loadShared(LEMMA_MODEL_CACHE, lemmatizerModelPath, p -> load(p, LemmatizerModel::new, "lemmatizer")),
+            loadModel
+                ? ModelCache.loadShared(LEMMA_MODEL_CACHE, lemmatizerModelPath, p -> load(p, LemmatizerModel::new, "lemmatizer"))
+                : null,
             dictPath == null ? null : ModelCache.loadShared(DICTIONARY_CACHE, dictPath, FstPosDictionaryLemmatizer::fromFile),
-            nativePosTags);
+            nativePosTags, modelFallback);
     }
 
     /** Wrap {@code input} with the OpenNLP POS tagger followed by the lemmatizer. */
@@ -134,8 +203,8 @@ public final class OpenNlpLemmatizer {
         var posOp = nativePosTags ? new NativeFormatPosTaggerOp(posModel) : new NLPPOSTaggerOp(posModel);
         var tagged = new OpenNLPPOSFilter(input, posOp);
         if (lemmaDictionary != null) {
-            // POS-aware: shared dictionary first, MaxEnt model fallback
-            return new OpenNlpPosLemmatizerFilter(tagged, lemmaDictionary, lemmatizerModel);
+            // POS-aware: shared dictionary first, MaxEnt model fallback unless it was turned off
+            return new OpenNlpPosLemmatizerFilter(tagged, lemmaDictionary, modelFallback ? lemmatizerModel : null);
         }
         NLPLemmatizerOp lemmaOp;
         try {

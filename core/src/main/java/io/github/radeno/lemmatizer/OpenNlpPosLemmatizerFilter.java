@@ -23,6 +23,9 @@ import org.apache.lucene.analysis.tokenattributes.TypeAttribute;
  * {@code LemmatizerME} wrapper is per-stream — same cost as the model-only path. This avoids the
  * per-thread dictionary copy that {@code NLPLemmatizerOp} would make. The concrete backing store is
  * chosen by the caller (e.g. {@link FstPosDictionaryLemmatizer}).
+ *
+ * <p>A {@code null} model turns the fallback off, making this a pure dictionary filter: a
+ * {@code (word, POS)} pair the dictionary does not cover leaves its token untouched.
  */
 final class OpenNlpPosLemmatizerFilter extends TokenFilter {
 
@@ -39,7 +42,7 @@ final class OpenNlpPosLemmatizerFilter extends TokenFilter {
         Map.entry("PART", "RB"), Map.entry("INTJ", "UH"), Map.entry("X", "NN"), Map.entry("SYM", "NN"));
 
     private final Lemmatizer dictionary;
-    private final LemmatizerME model;
+    private final LemmatizerME model; // nullable; null -> pure-dictionary mode (no model fallback)
     private final CharTermAttribute termAttr = addAttribute(CharTermAttribute.class);
     private final TypeAttribute typeAttr = addAttribute(TypeAttribute.class);
     private final KeywordAttribute keywordAttr = addAttribute(KeywordAttribute.class);
@@ -53,10 +56,11 @@ final class OpenNlpPosLemmatizerFilter extends TokenFilter {
     private static final String ANY_POS = "*";
     private final String[] anyTag = { ANY_POS };
 
+    /** {@code model} may be {@code null} to disable the MaxEnt fallback (pure-dictionary mode). */
     OpenNlpPosLemmatizerFilter(TokenStream input, Lemmatizer dictionary, LemmatizerModel model) {
         super(input);
         this.dictionary = dictionary;
-        this.model = new LemmatizerME(model);
+        this.model = model == null ? null : new LemmatizerME(model);
     }
 
     @Override
@@ -74,8 +78,14 @@ final class OpenNlpPosLemmatizerFilter extends TokenFilter {
             lemma = dictionary.lemmatize(word, anyTag)[0];     // POS-relaxed (single-lemma forms)
         }
         if (isBlank(lemma)) {
+            if (model == null) {
+                return true;                                   // pure-dictionary mode: leave the token as-is
+            }
             fallbackTag[0] = toPennTag(tag[0]);                // normalise tag for the Penn-trained model
             lemma = model.lemmatize(word, fallbackTag)[0];     // MaxEnt model fallback
+            if (foldsCaseOnly(word[0], lemma)) {
+                return true;                                   // model only folded case: keep the token
+            }
         }
         if (!isBlank(lemma)) {
             termAttr.setEmpty().append(lemma);
@@ -85,6 +95,37 @@ final class OpenNlpPosLemmatizerFilter extends TokenFilter {
 
     private static boolean isBlank(String lemma) {
         return lemma == null || lemma.isEmpty() || UNKNOWN.equals(lemma) || "_".equals(lemma);
+    }
+
+    /**
+     * Whether the model merely folded {@code word}'s case instead of lemmatising it. {@link LemmatizerME}
+     * lower-cases every token before applying its edit script, so a token it cannot lemmatise comes back
+     * as the lower-cased original ({@code SKU-4711 -> sku-4711}, {@code NATO -> nato}). Emitting that
+     * destroys the case of identifiers and of proper nouns the model does not know without lemmatising
+     * anything, so the original token is kept instead.
+     *
+     * <p>{@code word} must itself be foldable for this to fire, which pins down the direction of the
+     * change: a model trained on capitalised lemmas may legitimately answer {@code haus -> Haus}, and that
+     * lemma is kept. It also makes the guard inert behind a {@code lowercase} filter, whose
+     * {@code CharacterUtils.toLowerCase} leaves no foldable code point behind.
+     */
+    static boolean foldsCaseOnly(String word, String lemma) {
+        return lemma != null
+            && !lemma.equals(word)
+            && lemma.equalsIgnoreCase(word) // same letters, so the edit script changed nothing
+            && isFoldable(word);            // ...and it was the word that lost its case, not the lemma
+    }
+
+    /** Whether lower-casing {@code word} code point by code point would change it — Lucene's own rule. */
+    private static boolean isFoldable(String word) {
+        for (int i = 0; i < word.length(); ) {
+            int cp = word.codePointAt(i);
+            if (Character.toLowerCase(cp) != cp) {
+                return true;
+            }
+            i += Character.charCount(cp);
+        }
+        return false;
     }
 
     /** Map a UPOS(.feature) tag (e.g. {@code NOUN.Masc}) to its Penn equivalent; Penn tags pass through. */

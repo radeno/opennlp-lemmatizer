@@ -225,7 +225,8 @@ The third filter is the precise middle ground: it runs the OpenNLP POS tagger, t
 `(word, POS)` pairs the dictionary doesn't cover. So known words get the dictionary's exact lemma
 (disambiguated by part of speech — `je → byť` as a copula vs `je → jesť` as a verb), and everything
 else still gets a model lemma. Required settings: `pos_model`, `lemmatizer_model`, and `dictionary`
-(a `form<TAB>POS<TAB>lemma` file; fetch with **`-mte-pos`**, see [Models](#models)).
+(a `form<TAB>POS<TAB>lemma` file; fetch with **`-mte-pos`**, see [Models](#models)). Optional:
+`pos_format` and `model_fallback` — with `model_fallback: false`, `lemmatizer_model` is not needed.
 
 ```bash
 curl -XPOST localhost:9200/_analyze -H 'Content-Type: application/json' -d '{
@@ -244,19 +245,76 @@ curl -XPOST localhost:9200/_analyze -H 'Content-Type: application/json' -d '{
 > **Case-sensitive — chain `lowercase`.** Like `dictionary_lemmatizer`, the filter never folds case;
 > put a `lowercase` filter ahead of it for case-insensitive matching. The stored lemma keeps its case,
 > so proper nouns MULTEXT-East knows stay capitalised (`Bratislave → Bratislava`, `Dunaji → Dunaj`).
-> Words MTE only knows as common nouns, or doesn't know, fall back to the (lower-cased) model lemma.
+> Words MTE only knows as common nouns, or doesn't know, fall back to the model lemma, which is
+> lower-cased — unless the model lemmatised nothing at all, in which case the token is kept as it was
+> (see *the model fallback never folds case on its own*, below).
 >
 > **`pos_format` (advanced).** Defaults to `penn` — Lucene normalises the POS model's tags to the Penn
 > tagset, which is what the `-mte-pos` dictionary above is keyed on. **Keep the default for `sk-mte-pos.txt`.**
 > Set `pos_format: native` *only* when the dictionary's POS column matches the model's own native tagset
 > (e.g. the UPOS+gender model + dict from [experiments/gender/](experiments/gender/README.md)). Pairing
 > `native` with the Penn `-mte-pos` dictionary makes every lookup miss (the model emits UD `NOUN`, the
-> dict has Penn `NN`) → degraded model fallback. The two must agree.
+> dict has Penn `NN`) → degraded model fallback. The two must agree. Only `penn`, `native` and `custom`
+> are accepted; anything else (`ud`, a typo) is rejected when the index is created rather than silently
+> read as `penn`.
 >
 > **POS-relaxed fallback.** A form with a single lemma regardless of part of speech also gets a
 > `form<TAB>*<TAB>lemma` row, so when the POS tagger mis-tags such a word (`saunu` called a verb) the
 > filter still recovers its lemma (`sauna`) instead of falling to the model. Ambiguous forms (`je`) have
 > no `*` row, so context disambiguation is preserved. (Fetch a fresh `sk-mte-pos.txt` to get the `*` rows.)
+>
+> **The model fallback never folds case on its own.** `LemmatizerME` lower-cases every token before
+> lemmatising, so a token it cannot lemmatise would come back merely lower-cased (`NATO → nato`,
+> `SKU-4711 → sku-4711`). The filter keeps the original token in that case, so identifiers and unknown
+> proper nouns survive. This cannot change anything behind a `lowercase` filter, where the token is
+> already folded — see the recipes below to protect identifiers there.
+
+### `model_fallback: false` — a pure dictionary filter
+
+Set `model_fallback: false` to drop the MaxEnt fallback entirely: a `(word, POS)` pair the dictionary
+doesn't cover leaves its token **unchanged** instead of being guessed. Output becomes predictable —
+the filter never invents a lemma and never mangles a token — at the cost of the words only the model
+could reach (on real Slovak text with a `lowercase` filter and punctuation split off, that is ~2 % of
+tokens). `lemmatizer_model` is then not needed and is not loaded at all, which saves the model's heap
+(**~4 MB** for `sk-lemmas.bin`, **~46 MB** for `cs-lemmas.bin`).
+
+```bash
+curl -XPOST localhost:9200/_analyze -H 'Content-Type: application/json' -d '{
+  "tokenizer": "whitespace",
+  "filter": [ "lowercase", { "type": "pos_dictionary_lemmatizer", "pos_model": "sk-pos.bin",
+              "dictionary": "sk-mte-pos.txt", "model_fallback": false } ],
+  "text": "Objednávka SKU-4711 bola odoslaná"
+}'
+# tokens: objednávka  sku-4711  byť  odoslaná      <- "odoslaná" is not in the dictionary, so it stays
+```
+
+### Two recipes worth knowing
+
+All three filters honour `KeywordAttribute`, so the standard Lucene chains work without any setting.
+
+**Protect identifiers from the model** — mark them keyword and the lemmatizer leaves them alone:
+
+```json
+[ { "type": "keyword_marker", "keywords_pattern": ".*[0-9@:/].*" },
+  "lowercase",
+  { "type": "pos_dictionary_lemmatizer", "...": "..." } ]
+```
+
+`user@example.com` now survives intact instead of becoming `user@example.cí`. It does **not** keep its
+case: Lucene's `lowercase` filter ignores `KeywordAttribute`, so `SKU-4711` still folds to `sku-4711`
+wherever you place the marker. Drop `lowercase` to keep the case too — the filter then also keeps
+`SKU-4711` and `Objednávka` — but the dictionary is case-sensitive, so every capitalised word misses it.
+`model_fallback: false` above is the other way to get the same protection.
+
+**Index the original alongside the lemma** (recall) — the usual stacked-token pattern:
+
+```json
+[ "lowercase", "keyword_repeat", { "type": "pos_dictionary_lemmatizer", "...": "..." }, "remove_duplicates" ]
+```
+
+`Hostia prišli do Bratislavy` → `hostia hosť | prišli prísť | do | bratislavy Bratislava`, the lemma
+stacked at `position_increment: 0`. Note this feeds the POS tagger each token twice; on Slovak the lemmas
+come out identical, but the tags it reports in the `type` attribute do shift.
 
 ## OpenNLP vs jLemmaGen
 
