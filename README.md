@@ -13,7 +13,7 @@ It also ships a **`pos_dictionary_lemmatizer`** (POS-aware dictionary, model fal
 precise lemmas on known words, and a faster, POS-free **`dictionary_lemmatizer`** (flat `form → lemma`
 lookup) for when raw speed matters more than disambiguation — see [Use](#use).
 
-> **Verified end-to-end** on real nodes: OpenSearch **3.7.0** and Elasticsearch **9.4.2**
+> **Verified end-to-end** on real nodes: OpenSearch **3.7.0** and Elasticsearch **9.4.3**
 > (`_analyze "Děkuji že jsi přišel"` → `děkovat že být přijít` on both).
 
 ## Modules
@@ -39,11 +39,11 @@ mvn clean package
 ```
 
 **Plugins must match your node version exactly.** Defaults: OpenSearch `3.7.0`, Elasticsearch
-`9.4.2`. Build for a different node:
+`9.4.3`. Build for a different node:
 
 ```bash
 mvn -pl opensearch    -am package -Dopensearch.version=3.7.0
-mvn -pl elasticsearch -am package -Delasticsearch.version=9.4.2
+mvn -pl elasticsearch -am package -Delasticsearch.version=9.4.3
 ```
 
 ## Models
@@ -60,9 +60,10 @@ are included. Fetch them from Maven Central with the helper:
 
 Place them in your node's `config/opennlp/` directory.
 
-> **Versions matter.** The plugin bundles Apache **OpenNLP `opennlp-tools` 2.5.4**, and
-> `fetch-models.sh` pulls **models 1.3.0** (trained with OpenNLP 2.5.4). Keep the model version
-> aligned with the engine — a major mismatch can fail to load. (Lucene 10.4.0, JDK 25.)
+> **Versions matter.** The plugin bundles Apache **OpenNLP `opennlp-tools` 2.5.10**, and
+> `fetch-models.sh` pulls **models 1.3.0** (trained with OpenNLP 2.5.4). Any 2.5.x engine reads
+> those models unchanged — lemma output is byte-identical across the line — but a major mismatch
+> (3.x) is untested and can fail to load. (Lucene 10.4.0, JDK 25.)
 
 For a **larger dictionary**, fetch one of these (all need `python3`; `-mte*` also need `gzip`):
 
@@ -93,15 +94,15 @@ OpenSearch (3.7.0):
 
 ```bash
 ./bin/opensearch-plugin install \
-  https://github.com/radeno/opennlp-lemmatizer/releases/download/v0.2.0/opensearch-analysis-opennlp-lemmatizer-3.7.0.zip
+  https://github.com/radeno/opennlp-lemmatizer/releases/download/v0.2.1/opensearch-analysis-opennlp-lemmatizer-3.7.0.zip
 ./scripts/fetch-models.sh cs config/opennlp   # downloads the Czech models there, then restart
 ```
 
-Elasticsearch (9.4.2):
+Elasticsearch (9.4.3):
 
 ```bash
 ./bin/elasticsearch-plugin install \
-  https://github.com/radeno/opennlp-lemmatizer/releases/download/v0.2.0/elasticsearch-analysis-opennlp-lemmatizer-9.4.2.zip
+  https://github.com/radeno/opennlp-lemmatizer/releases/download/v0.2.1/elasticsearch-analysis-opennlp-lemmatizer-9.4.3.zip
 ./scripts/fetch-models.sh cs config/opennlp   # downloads the Czech models there, then restart
 ```
 
@@ -204,7 +205,7 @@ curl -XPOST localhost:9200/_analyze -H 'Content-Type: application/json' -d '{
 # tokens: tři  žena  nést  tři  jablko
 ```
 
-Both verified on real nodes (**OpenSearch 3.7.0** and **Elasticsearch 9.4.2**, identical output):
+Both verified on real nodes (**OpenSearch 3.7.0** and **Elasticsearch 9.4.3**, identical output):
 
 - **Slovak / MULTEXT-East** beats the deployed jLemmaGen on the cases that matter — `je → byť`
   (jLemmaGen: `jesť`), `tri → tri` (jLemmaGen mangles capitalised `Tri`), `priatelia → priateľ` — at

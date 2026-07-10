@@ -2,7 +2,7 @@
 
 A running log of known limitations and ideas for later — so a future session can pick up with
 context instead of rediscovering them. Add entries as you find them; remove them when fixed (and
-mention the fix in the commit). Evidence/numbers come from real node tests (ES 9.4.2 + OS 3.7.0)
+mention the fix in the commit). Evidence/numbers come from real node tests (ES 9.4.3 + OS 3.7.0)
 unless noted.
 
 ## Known shortcomings

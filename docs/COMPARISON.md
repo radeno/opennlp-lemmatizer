@@ -25,7 +25,7 @@ Engines:
 
 The deployed `analysis-lemmagen` plugin (its own `cs.lem` / `sk.lem`) vs this repo's
 `dictionary_lemmatizer` (Slovak from MTE, Czech from UD; a `lowercase` filter upstream) — run on real
-nodes, **identical on OpenSearch 3.7.0 and Elasticsearch 9.4.2**:
+nodes, **identical on OpenSearch 3.7.0 and Elasticsearch 9.4.3**:
 
 Slovak — MTE `sk` is large (922k forms):
 
@@ -207,7 +207,7 @@ For older steady-state library microbenchmarks (no HTTP): CharArrayMap ~40M, fla
 ## Verified
 
 All three filters (`opennlp_lemmatizer`, `dictionary_lemmatizer`, `pos_dictionary_lemmatizer`) were
-installed and exercised on real nodes — **OpenSearch 3.7.0** and **Elasticsearch 9.4.2** — loading
+installed and exercised on real nodes — **OpenSearch 3.7.0** and **Elasticsearch 9.4.3** — loading
 cleanly (no JarHell; Elasticsearch needs no extra entitlements for `config/opennlp/` reads).
 `opennlp_lemmatizer`: `_analyze "Děkuji že jsi přišel"` → `děkovat že být přijít` on both. The Slovak
 comparisons above are live `_analyze` output from the OpenSearch 3.7 node.

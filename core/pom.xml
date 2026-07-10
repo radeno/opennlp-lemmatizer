@@ -7,7 +7,7 @@
   <parent>
     <groupId>io.github.radeno</groupId>
     <artifactId>opennlp-lemmatizer-parent</artifactId>
-    <version>0.2.0</version>
+    <version>0.2.1</version>
   </parent>
 
   <artifactId>opennlp-lemmatizer-core</artifactId>
@@ -20,7 +20,8 @@
       <groupId>org.apache.lucene</groupId>
       <artifactId>lucene-analysis-opennlp</artifactId>
     </dependency>
-    <!-- pin opennlp-tools to the version the cs/sk models were trained with (2.5.4) -->
+    <!-- override the older opennlp-tools that lucene-analysis-opennlp pulls in; must stay on the
+         2.5.x line, which reads the cs/sk model binaries unchanged (3.x has not been verified) -->
     <dependency>
       <groupId>org.apache.opennlp</groupId>
       <artifactId>opennlp-tools</artifactId>
