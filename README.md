@@ -165,9 +165,11 @@ curl -XPOST localhost:9200/_analyze -H 'Content-Type: application/json' -d '{
 Full index-analyzer settings per language: [examples/cs-analyzer.json](examples/cs-analyzer.json),
 [examples/sk-analyzer.json](examples/sk-analyzer.json).
 
-> POS tagging runs over the token stream as one sentence, so the filter is best placed after a
-> sentence-/field-sized tokenizer. OpenNLP lemmas are lowercased (UD convention), and each token's
-> POS tag is exposed in the `type` attribute (e.g. `NNP` for a proper noun) for downstream filters.
+> POS tagging is sentence-aware: the filter splits the token stream on sentence-ending punctuation
+> (`.`, `!`, `?`) so the tagger sees one sentence at a time, the way it was trained — a field is not
+> tagged as one giant sentence even behind a `whitespace` tokenizer. This keeps tagging accurate and
+> bounds memory to a single sentence on long documents. OpenNLP lemmas are lowercased (UD convention),
+> and each token's POS tag is exposed in the `type` attribute (e.g. `NNP` for a proper noun).
 
 ### Dictionary lemmatizer (fast, POS-free)
 

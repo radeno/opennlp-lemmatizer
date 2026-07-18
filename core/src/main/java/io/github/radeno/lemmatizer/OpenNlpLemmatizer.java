@@ -201,7 +201,10 @@ public final class OpenNlpLemmatizer {
         // Lucene's NLPPOSTaggerOp hard-codes POSTagFormat.PENN; for a non-Penn model (e.g. UPOS+gender)
         // use a CUSTOM-format tagger so the dictionary sees the tags the model actually emits.
         var posOp = nativePosTags ? new NativeFormatPosTaggerOp(posModel) : new NLPPOSTaggerOp(posModel);
-        var tagged = new OpenNLPPOSFilter(input, posOp);
+        // OpenNLPPOSFilter tags one SentenceAttribute run at a time, and only OpenNLPTokenizer sets that
+        // attribute — without this the whole field is tagged as one sentence and buffered at once.
+        var chunked = new SentenceChunkFilter(input);
+        var tagged = new OpenNLPPOSFilter(chunked, posOp);
         if (lemmaDictionary != null) {
             // POS-aware: shared dictionary first, MaxEnt model fallback unless it was turned off
             return new OpenNlpPosLemmatizerFilter(tagged, lemmaDictionary, modelFallback ? lemmatizerModel : null);
