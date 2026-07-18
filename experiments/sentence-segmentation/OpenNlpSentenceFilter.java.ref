@@ -1,0 +1,66 @@
+package io.github.radeno.lemmatizer;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+import opennlp.tools.sentdetect.SentenceDetectorME;
+import opennlp.tools.util.Span;
+import org.apache.lucene.analysis.TokenFilter;
+import org.apache.lucene.analysis.TokenStream;
+import org.apache.lucene.analysis.tokenattributes.CharTermAttribute;
+import org.apache.lucene.analysis.tokenattributes.SentenceAttribute;
+import org.apache.lucene.util.AttributeSource;
+
+/** Buffer-all OpenNLP sentence detection (MVP): join the field, sentPosDetect once, tag each token. */
+final class OpenNlpSentenceFilter extends TokenFilter {
+  private final SentenceDetectorME detector;
+  private final CharTermAttribute termAttr = addAttribute(CharTermAttribute.class);
+  private final SentenceAttribute sentAttr = addAttribute(SentenceAttribute.class);
+
+  private final List<AttributeSource> tokens = new ArrayList<>();
+  private final List<Integer> starts = new ArrayList<>();
+  private int[] sentenceOf = null;
+  private int pos = 0;
+  private boolean built = false;
+
+  OpenNlpSentenceFilter(TokenStream input, SentenceDetectorME detector) {
+    super(input);
+    this.detector = detector;
+  }
+
+  @Override
+  public boolean incrementToken() throws IOException {
+    if (!built) build();
+    if (pos >= tokens.size()) return false;
+    clearAttributes();
+    tokens.get(pos).copyTo(this);
+    sentAttr.setSentenceIndex(sentenceOf[pos]);
+    pos++;
+    return true;
+  }
+
+  private void build() throws IOException {
+    StringBuilder text = new StringBuilder();
+    while (input.incrementToken()) {
+      String term = termAttr.toString();
+      if (text.length() > 0) text.append(' ');
+      starts.add(text.length());
+      text.append(term);
+      tokens.add(input.cloneAttributes());
+    }
+    Span[] spans = text.length() == 0 ? new Span[0] : detector.sentPosDetect(text.toString());
+    sentenceOf = new int[tokens.size()];
+    int s = 0;
+    for (int i = 0; i < tokens.size(); i++) {
+      int start = starts.get(i);
+      while (s + 1 < spans.length && start >= spans[s + 1].getStart()) s++;
+      sentenceOf[i] = s;
+    }
+    built = true;
+  }
+
+  @Override
+  public void reset() throws IOException {
+    super.reset();
+    tokens.clear(); starts.clear(); sentenceOf = null; pos = 0; built = false;
+  }
+}
