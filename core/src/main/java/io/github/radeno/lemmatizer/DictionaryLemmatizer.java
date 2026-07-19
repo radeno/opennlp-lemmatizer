@@ -1,23 +1,13 @@
 package io.github.radeno.lemmatizer;
 
-import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.lucene.analysis.TokenStream;
 import org.apache.lucene.util.BytesRef;
-import org.apache.lucene.util.IntsRefBuilder;
-import org.apache.lucene.util.fst.ByteSequenceOutputs;
 import org.apache.lucene.util.fst.FST;
-import org.apache.lucene.util.fst.FSTCompiler;
-import org.apache.lucene.util.fst.Util;
 
 /**
  * Fast, POS-free lemmatization by flat {@code form → lemma} dictionary lookup, backed by a Lucene FST.
@@ -30,10 +20,11 @@ import org.apache.lucene.util.fst.Util;
  * <p>The FST is ~50–100× more compact than a hash map for this data (it shares key prefixes and lemma
  * suffixes across the whole dictionary): a few MB instead of ~100&nbsp;MB for the Slovak lexicon. The
  * only cost is a small per-token allocation on lookup, which is masked by the analysis pipeline — so
- * end-to-end throughput matches a {@code CharArrayMap} while using a fraction of the memory.
+ * end-to-end throughput stays high while using a fraction of the memory.
  *
  * <p>Dictionary keys are lower-cased, so chain a {@code lowercase} filter BEFORE this one for
- * case-insensitive matching. The loaded FST is immutable and shared across threads (and, via
+ * case-insensitive matching. It shares the {@link FstBuilder}, so an already-sorted file streams into the
+ * automaton with no in-heap buffer. The loaded FST is immutable and shared across threads (and, via
  * {@link ModelCache}, across every index on the node).
  */
 public final class DictionaryLemmatizer {
@@ -52,8 +43,6 @@ public final class DictionaryLemmatizer {
         this.fst = fst;
         this.size = size;
     }
-
-    private record Entry(byte[] key, byte[] lemma) {}
 
     /**
      * Load the dictionary from {@code <configDir>/opennlp/<dictionaryFile>}, sharing one FST per file
@@ -74,49 +63,28 @@ public final class DictionaryLemmatizer {
 
     /** Load a flat {@code form<TAB>lemma} dictionary file (UTF-8, one pair per line) into an FST. */
     public static DictionaryLemmatizer fromFile(Path path) {
-        List<Entry> entries = new ArrayList<>(1 << 20);
-        try (var lines = Files.lines(path, StandardCharsets.UTF_8)) {
-            lines.forEach(raw -> {
-                var line = (!raw.isEmpty() && raw.charAt(0) == '﻿') ? raw.substring(1) : raw; // strip BOM
-                int tab = line.indexOf('\t');
-                if (tab <= 0) {
-                    return;
-                }
-                var form = line.substring(0, tab).strip().toLowerCase(Locale.ROOT);
-                var lemma = line.substring(tab + 1).strip();
-                int extra = lemma.indexOf('\t'); // ignore any further columns
-                if (extra >= 0) {
-                    lemma = lemma.substring(0, extra).strip();
-                }
-                if (!form.isEmpty() && !lemma.isEmpty()) {
-                    entries.add(new Entry(
-                        form.getBytes(StandardCharsets.UTF_8), lemma.getBytes(StandardCharsets.UTF_8)));
-                }
-            });
-        } catch (IOException e) {
-            throw new UncheckedIOException("Cannot load dictionary from " + path, e);
-        }
-        entries.sort((a, b) -> Arrays.compareUnsigned(a.key, b.key)); // FST needs sorted (unsigned) keys
+        FstBuilder.Result r = FstBuilder.build(path, DictionaryLemmatizer::parse);
+        return new DictionaryLemmatizer(r.fst(), r.size());
+    }
 
-        try {
-            var outputs = ByteSequenceOutputs.getSingleton();
-            var compiler = new FSTCompiler.Builder<>(FST.INPUT_TYPE.BYTE1, outputs).build();
-            var scratch = new IntsRefBuilder();
-            byte[] prevKey = null;
-            int added = 0;
-            for (Entry e : entries) {
-                if (prevKey != null && Arrays.equals(prevKey, e.key)) {
-                    continue; // first-wins on duplicate form
-                }
-                compiler.add(Util.toIntsRef(new BytesRef(e.key), scratch), new BytesRef(e.lemma));
-                prevKey = e.key;
-                added++;
-            }
-            FST<BytesRef> fst = FST.fromFSTReader(compiler.compile(), compiler.getFSTReader());
-            return new DictionaryLemmatizer(fst, added);
-        } catch (IOException e) {
-            throw new UncheckedIOException("Cannot build FST from " + path, e);
+    /** Parse one {@code form<TAB>lemma} line into its FST key ({@code form}, lower-cased) and lemma bytes. */
+    private static FstBuilder.Entry parse(String raw) {
+        var line = FstBuilder.stripBom(raw);
+        int tab = line.indexOf('\t');
+        if (tab <= 0) {
+            return null;
         }
+        var form = line.substring(0, tab).strip().toLowerCase(Locale.ROOT);
+        var lemma = line.substring(tab + 1).strip();
+        int extra = lemma.indexOf('\t'); // ignore any further columns
+        if (extra >= 0) {
+            lemma = lemma.substring(0, extra).strip();
+        }
+        if (form.isEmpty() || lemma.isEmpty()) {
+            return null;
+        }
+        return new FstBuilder.Entry(
+            form.getBytes(StandardCharsets.UTF_8), lemma.getBytes(StandardCharsets.UTF_8));
     }
 
     /** Number of {@code form -> lemma} entries. */

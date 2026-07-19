@@ -2,7 +2,6 @@ package io.github.radeno.lemmatizer;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertThrows;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -41,47 +40,21 @@ public class FstPosDictionaryLemmatizerTest {
             lem.lemmatize(new String[] { "Je", "Bratislava" }, new String[] { "MD", "NN" }));
     }
 
-    // --- M2: low-memory streaming load (already-sorted file) vs. buffered fallback ---
-
+    /**
+     * A file not in FST key order still loads correctly (via {@link FstBuilder}'s buffered fallback), and
+     * duplicate {@code (form, POS)} keys keep the first lemma. Low-level build paths are in
+     * {@link FstBuilderTest}; this pins the user-facing guarantee of {@code fromFile}.
+     */
     @Test
-    public void streamBuildsAnAlreadySortedFileWithFirstWinsDedup() throws Exception {
-        // LC_ALL=C key order (form<TAB>POS): '*'(0x2a) < 'C'(0x43) < 'M' < 'N'; duplicate key -> first wins.
-        Path dict = Files.createTempFile("fstposdict-sorted", ".txt");
-        Files.writeString(dict,
-            "auto\t*\tauto\n" + "je\tMD\tbyť\n" + "je\tMD\tDUPLICATE\n" + "je\tVB\tjesť\n" + "tri\tCD\ttri\n");
-
-        FstPosDictionaryLemmatizer lem = FstPosDictionaryLemmatizer.streamBuild(dict);
-        assertEquals(4, lem.size()); // the duplicate (je, MD) collapses to one
-        assertArrayEquals(
-            new String[] { "auto", "byť", "jesť", "tri" },
-            lem.lemmatize(new String[] { "auto", "je", "je", "tri" },
-                          new String[] { "*", "MD", "VB", "CD" }));
-    }
-
-    @Test
-    public void streamBuildRejectsAnOutOfOrderFileSoFromFileCanFallBack() throws Exception {
+    public void fromFileLoadsAnUnsortedFileAndKeepsTheFirstOfDuplicateKeys() throws Exception {
         Path dict = Files.createTempFile("fstposdict-unsorted", ".txt");
-        Files.writeString(dict, "tri\tCD\ttri\nauto\t*\tauto\n"); // 't' before 'a' -> not key order
+        // 't' before 'a' -> not key order; the (je, MD) key repeats -> first ("byť") wins
+        Files.writeString(dict, "tri\tCD\ttri\nje\tMD\tbyť\nje\tMD\tDUPLICATE\nauto\t*\tauto\n");
 
-        assertThrows(FstPosDictionaryLemmatizer.UnsortedDictionaryException.class,
-            () -> FstPosDictionaryLemmatizer.streamBuild(dict));
-
-        // fromFile() must still load it correctly via the buffered fallback
         FstPosDictionaryLemmatizer lem = FstPosDictionaryLemmatizer.fromFile(dict);
+        assertEquals(3, lem.size());
         assertArrayEquals(
-            new String[] { "auto", "tri" },
-            lem.lemmatize(new String[] { "auto", "tri" }, new String[] { "*", "CD" }));
-    }
-
-    @Test
-    public void streamAndBufferedBuildsAgreeOnTheSameSortedInput() throws Exception {
-        Path dict = Files.createTempFile("fstposdict-agree", ".txt");
-        Files.writeString(dict, "auto\t*\tauto\nbratislava\tNN\tBratislava\nje\tMD\tbyť\nje\tVB\tjesť\n");
-
-        String[] words = { "auto", "bratislava", "je", "je", "xyz" };
-        String[] tags = { "*", "NN", "MD", "VB", "NN" };
-        assertArrayEquals(
-            FstPosDictionaryLemmatizer.bufferedBuild(dict).lemmatize(words, tags),
-            FstPosDictionaryLemmatizer.streamBuild(dict).lemmatize(words, tags));
+            new String[] { "auto", "tri", "byť" },
+            lem.lemmatize(new String[] { "auto", "tri", "je" }, new String[] { "*", "CD", "MD" }));
     }
 }
