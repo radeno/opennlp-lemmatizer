@@ -31,6 +31,11 @@ import org.apache.lucene.util.fst.Util;
  */
 final class FstBuilder {
 
+    // JDK logger: no new dependency, and a node that installs a System.Logger backend (OpenSearch and
+    // Elasticsearch both run log4j2) routes it there. The plugin bundles slf4j-api without a binding, so
+    // logging through slf4j from core would silently no-op instead.
+    private static final System.Logger LOG = System.getLogger(FstBuilder.class.getName());
+
     private FstBuilder() {
     }
 
@@ -60,13 +65,38 @@ final class FstBuilder {
         return (!raw.isEmpty() && raw.charAt(0) == '﻿') ? raw.substring(1) : raw;
     }
 
-    /** Build from {@code path}, streaming when it is already in key order and buffering otherwise. */
+    /**
+     * Build from {@code path}, streaming when it is already in key order and buffering otherwise, and log
+     * what was loaded — entry count, which path was taken, elapsed time and FST size.
+     *
+     * @throws IllegalArgumentException if no line parsed, which means the file is not the expected
+     *     tab-separated format. Lucene's compiler returns a {@code null} FST for an empty input, so this
+     *     would otherwise surface as a {@code NullPointerException} on the first token analysed rather
+     *     than when the index is created.
+     */
     static Result build(Path path, LineParser parser) {
+        long start = System.nanoTime();
+        boolean streamed = true;
+        Result result;
         try {
-            return streamBuild(path, parser);
+            result = streamBuild(path, parser);
         } catch (UnsortedException unsorted) {
-            return bufferedBuild(path, parser);
+            streamed = false;
+            result = bufferedBuild(path, parser);
         }
+        if (result.size() == 0) {
+            throw new IllegalArgumentException("No entries parsed from " + path
+                + "; expected tab-separated lines (form<TAB>lemma or form<TAB>POS<TAB>lemma)");
+        }
+        long ms = (System.nanoTime() - start) / 1_000_000;
+        Result loaded = result;
+        boolean viaStream = streamed;
+        LOG.log(System.Logger.Level.INFO,
+            () -> String.format("Loaded %d entries from %s in %d ms (%s, FST %.1f MB)",
+                loaded.size(), path, ms,
+                viaStream ? "streamed" : "buffered: file not in key order",
+                loaded.fst().ramBytesUsed() / (1024.0 * 1024.0)));
+        return loaded;
     }
 
     /**

@@ -4,6 +4,7 @@ import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
+import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -95,5 +96,20 @@ public class FstBuilderTest {
 
         FstBuilder.Result r = FstBuilder.build(f, PARSER);
         assertEquals(2, r.size());
+    }
+
+    /**
+     * A file in the wrong format parses to nothing. Lucene compiles that to a {@code null} FST, which
+     * used to blow up with a {@code NullPointerException} on the first token analysed — long after the
+     * misconfiguration. It must fail when the dictionary is loaded instead.
+     */
+    @Test
+    public void failsWhenNoLineParses() throws Exception {
+        Path f = Files.createTempFile("fstbuilder-empty", ".txt");
+        Files.writeString(f, "no-tab-here\nnor-here\n");
+
+        IllegalArgumentException e =
+            assertThrows(IllegalArgumentException.class, () -> FstBuilder.build(f, PARSER));
+        assertTrue(e.getMessage(), e.getMessage().contains("No entries parsed"));
     }
 }
