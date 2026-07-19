@@ -9,8 +9,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
 /**
- * Node-wide cache for the heavy, immutable artifacts a token-filter factory loads — OpenNLP models, the
- * FST dictionary, the flat {@link DictionaryLemmatizer} {@code CharArrayMap}.
+ * Node-wide cache for the heavy, immutable artifacts a token-filter factory loads — OpenNLP models and
+ * the FST dictionaries ({@link DictionaryLemmatizer}, {@link FstPosDictionaryLemmatizer}).
  *
  * <p>A token-filter factory is instantiated per <em>(index, filter)</em>, so without sharing the same
  * files are parsed into a fresh copy each time (the same dictionary easily ends up loaded several times

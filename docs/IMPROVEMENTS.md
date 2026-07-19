@@ -191,7 +191,7 @@ model/dict as artifacts (a build script + a fetch target) is the remaining produ
 | filter | tok/s (best-of-5, 4490 tok, `_analyze`) | heap (926k dict, microbench) |
 |---|---|---|
 | jLemmaGen | 131,830 | — |
-| `dictionary_lemmatizer` | 17,097 | ~63 MB (CharArrayMap) → **~2 MB (FST, see below)** |
+| `dictionary_lemmatizer` | 17,097 | ~106 MB (CharArrayMap) → **~2 MB (FST, see below)** |
 | `pos_dictionary_lemmatizer` | 6,006 | **~1.5 MB (FST)** |
 | `opennlp_lemmatizer` | 5,777 | model only |
 
@@ -206,7 +206,9 @@ FST vs a plain hash map for the same dictionary: **1.5 MB vs 268 MB** (178×), 0
   ~7.4 MB (`pos_dictionary` copy) / ~94 MB (`dictionary` copy) to ~0.4 MB.
 - **M2 — streaming FST load**: an already-sorted dictionary streams straight into the FST with no in-heap
   entry buffer (peak build heap 238 MB → 85 MB on the 926k dict); falls back to buffer+sort otherwise.
-  `fetch-models.sh` now emits the `-mte-pos` dictionary in `LC_ALL=C` (FST key) order.
+  `fetch-models.sh` now emits the `-mte-pos` dictionary in `LC_ALL=C` (FST key) order. Both dictionaries
+  now share one `FstBuilder`, so the flat `-mte` dictionary streams too — the `dictionary_lemmatizer`
+  load survives an `-Xmx30m` heap that the old buffered path needed ~85 MB for.
 - **FST flat dictionary**: `dictionary_lemmatizer` was a `CharArrayMap` (~106 MB, zero-alloc lookup). It
   now uses an FST like `pos_dictionary` (~2 MB). The FST lookup is ~20× slower in isolation (~2M vs ~40M
   lookups/sec) but that is masked by the pipeline — **end-to-end throughput measured equal on the node**
