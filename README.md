@@ -134,6 +134,9 @@ language-neutral):
 | `pos_dictionary_lemmatizer` | best precision on known words — a POS-aware `form/POS/lemma` dictionary consulted first, the MaxEnt model fills the gaps | `pos_model` + `lemmatizer_model` + `dictionary` → e.g. `sk-pos.bin` + `sk-lemmas.bin` + `sk-mte-pos.txt` |
 | `dictionary_lemmatizer` | max speed — flat `form → lemma` lookup, no POS | `dictionary` → e.g. `sk-mte.txt` (Slovak) or `cs-ud.txt` (Czech) |
 
+All three also take [`keep_original`](#keep_original-true--index-the-surface-form-beside-the-lemma) to
+index the surface form beside each lemma.
+
 Ready-made analyzer configs for both filters, per language, are in [examples/](examples/).
 
 ### POS-aware: `opennlp_lemmatizer`
@@ -227,7 +230,8 @@ The third filter is the precise middle ground: it runs the OpenNLP POS tagger, t
 (disambiguated by part of speech — `je → byť` as a copula vs `je → jesť` as a verb), and everything
 else still gets a model lemma. Required settings: `pos_model`, `lemmatizer_model`, and `dictionary`
 (a `form<TAB>POS<TAB>lemma` file; fetch with **`-mte-pos`**, see [Models](#models)). Optional:
-`pos_format` and `model_fallback` — with `model_fallback: false`, `lemmatizer_model` is not needed.
+`pos_format`, `model_fallback` — with `model_fallback: false`, `lemmatizer_model` is not needed — and
+`keep_original`.
 
 ```bash
 curl -XPOST localhost:9200/_analyze -H 'Content-Type: application/json' -d '{
@@ -289,6 +293,50 @@ curl -XPOST localhost:9200/_analyze -H 'Content-Type: application/json' -d '{
 # tokens: objednávka  sku-4711  byť  odoslaná      <- "odoslaná" is not in the dictionary, so it stays
 ```
 
+### `keep_original: true` — index the surface form beside the lemma
+
+Available on **all three filters**. Each rewritten token is emitted twice at the same position — the
+lemma and the word as written (`position_increment: 0`) — so a document still matches on the surface
+form when the lemma is wrong: a model guess, a homonym resolved for the wrong domain (`plese → ples`
+in a tourism corpus), or a proper noun the dictionary lower-cases. Defaults to `false`.
+
+```bash
+curl -XPOST localhost:9200/_analyze -H 'Content-Type: application/json' -d '{
+  "tokenizer": "whitespace",
+  "filter": [ "lowercase", { "type": "pos_dictionary_lemmatizer", "pos_model": "sk-pos.bin",
+              "lemmatizer_model": "sk-lemmas.bin", "dictionary": "sk-mte-pos.txt",
+              "keep_original": true } ],
+  "text": "Hostia prišli do Bratislavy"
+}'
+# tokens: hostia hosť | prišli prísť | do | bratislavy Bratislava
+```
+
+A token whose lemma equals it (`do`) is **not** doubled, so only real rewrites cost an extra posting.
+This is the same stacked-token shape as the `keyword_repeat` recipe below, but the repeat happens
+*inside* the filter, **after** the POS tagger — so the tagger still reads each token once and its tags
+do not shift. Prefer the setting over the manual chain on the two POS-aware filters.
+
+**What it costs.** Measured on 1019 tokens of real Slovak (`KeepOriginalBenchmarkTest`, 6 articles from
+two sources):
+
+| filter | tokens rewritten | extra postings | throughput |
+|---|---|---|---|
+| `pos_dictionary_lemmatizer` | 51.4 % | +51.4 % | unchanged (within ±10 % noise) |
+| `dictionary_lemmatizer` | 49.5 % | +49.5 % | −27 % (3.4M → 2.5M tok/s) |
+| `opennlp_lemmatizer` | 47.4 % | +47.4 % | unchanged (within ±1 % noise) |
+
+Slovak is heavily inflected, so about **half of all tokens are rewritten** and the postings list grows by
+roughly half — that is the real price, not CPU. On the two POS-aware filters the extra work disappears
+behind POS tagging; only the flat filter, which otherwise does almost nothing per token, feels it (and
+2.5M tok/s is still far above what an ingest pipeline needs).
+
+**What it buys.** Lemmas are byte-identical with the setting on — the benchmark asserts this, so lemma
+quality cannot regress. What changes is recall: the ~50 % of tokens that get rewritten stay findable as
+written. That matters exactly where the lemma is wrong, which this project documents rather than hides —
+`Tatry → tatra`, `Karpaty → karpata`, `hrady → hrada`, `angínu → angín`, `plese → ples` (right for a
+dance corpus, wrong for a tourism one). None of those become *correct*, but none of them become
+unfindable either.
+
 ### Two recipes worth knowing
 
 All three filters honour `KeywordAttribute`, so the standard Lucene chains work without any setting.
@@ -315,7 +363,9 @@ wherever you place the marker. Drop `lowercase` to keep the case too — the fil
 
 `Hostia prišli do Bratislavy` → `hostia hosť | prišli prísť | do | bratislavy Bratislava`, the lemma
 stacked at `position_increment: 0`. Note this feeds the POS tagger each token twice; on Slovak the lemmas
-come out identical, but the tags it reports in the `type` attribute do shift.
+come out identical, but the tags it reports in the `type` attribute do shift. **`keep_original: true`
+(above) does the same thing without that flaw** — it repeats the token after the tagger — so reach for
+the manual chain only when you need the repeat around filters other than these.
 
 ## OpenNLP vs jLemmaGen
 

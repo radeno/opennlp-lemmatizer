@@ -32,14 +32,16 @@ public class DictionaryLemmatizerTest {
 
     @Test
     public void fromConfigSharesOneLoadedCopyPerFile() throws Exception {
-        // M1: the ~100 MB CharArrayMap must load once per file, not once per (index, filter).
+        // M1: the dictionary FST must load once per file, not once per (index, filter). The wrappers
+        // differ (they carry per-filter settings); what has to be shared is the automaton behind them.
         Path config = Files.createTempDirectory("cfg");
         Path models = Files.createDirectories(config.resolve(OpenNlpLemmatizer.MODELS_DIRECTORY));
         Files.writeString(models.resolve("d.txt"), "auto\tauto\nje\tbyť\n");
 
         DictionaryLemmatizer a = DictionaryLemmatizer.fromConfig("f1", config, "d.txt");
-        DictionaryLemmatizer b = DictionaryLemmatizer.fromConfig("f2", config, "d.txt");
-        assertSame("two filters on the same dictionary file share one CharArrayMap copy", a, b);
+        DictionaryLemmatizer b = DictionaryLemmatizer.fromConfig("f2", config, "d.txt", true);
+        assertSame("two filters on the same dictionary file share one loaded FST",
+            a.dictionary(), b.dictionary());
     }
 
     private static List<String> lemmatize(DictionaryLemmatizer lemmatizer, String text) throws Exception {

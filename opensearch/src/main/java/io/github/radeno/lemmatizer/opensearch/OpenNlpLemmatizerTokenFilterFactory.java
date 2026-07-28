@@ -13,7 +13,7 @@ import org.opensearch.index.analysis.AbstractTokenFilterFactory;
  *
  * <p>Models are loaded from {@code <config>/opennlp/}. Required settings:
  * {@link OpenNlpLemmatizer#POS_MODEL_SETTING} and {@link OpenNlpLemmatizer#LEMMATIZER_MODEL_SETTING}
- * (the {@code .bin} file names).
+ * (the {@code .bin} file names). Optional: {@link OpenNlpLemmatizer#KEEP_ORIGINAL_SETTING}.
  */
 public class OpenNlpLemmatizerTokenFilterFactory extends AbstractTokenFilterFactory {
 
@@ -25,7 +25,8 @@ public class OpenNlpLemmatizerTokenFilterFactory extends AbstractTokenFilterFact
             name,
             env.configDir(),
             settings.get(OpenNlpLemmatizer.POS_MODEL_SETTING),
-            settings.get(OpenNlpLemmatizer.LEMMATIZER_MODEL_SETTING));
+            settings.get(OpenNlpLemmatizer.LEMMATIZER_MODEL_SETTING),
+            settings.getAsBoolean(OpenNlpLemmatizer.KEEP_ORIGINAL_SETTING, false));
     }
 
     @Override

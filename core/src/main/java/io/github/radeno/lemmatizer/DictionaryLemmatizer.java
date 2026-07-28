@@ -6,6 +6,8 @@ import java.util.Locale;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.lucene.analysis.TokenStream;
+import org.apache.lucene.analysis.miscellaneous.KeywordRepeatFilter;
+import org.apache.lucene.analysis.miscellaneous.RemoveDuplicatesTokenFilter;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.fst.FST;
 
@@ -32,16 +34,24 @@ public final class DictionaryLemmatizer {
     /** Token-filter setting naming the dictionary file (in {@code <config>/opennlp/}). */
     public static final String DICTIONARY_SETTING = "dictionary";
 
+    /**
+     * The heavy, immutable half — what the node-wide cache shares. Per-filter settings live on the
+     * enclosing instance instead, so two filters reading the same file with different settings still
+     * share one automaton.
+     */
+    record Dictionary(FST<BytesRef> fst, int size) {
+    }
+
     // Node-wide dedup cache (see ModelCache): one FST per file, shared across every index on the node.
-    private static final ConcurrentHashMap<String, ModelCache.Cached<DictionaryLemmatizer>> CACHE =
+    private static final ConcurrentHashMap<String, ModelCache.Cached<Dictionary>> CACHE =
         new ConcurrentHashMap<>();
 
-    private final FST<BytesRef> fst;
-    private final int size;
+    private final Dictionary dictionary;
+    private final boolean keepOriginal;
 
-    private DictionaryLemmatizer(FST<BytesRef> fst, int size) {
-        this.fst = fst;
-        this.size = size;
+    private DictionaryLemmatizer(Dictionary dictionary, boolean keepOriginal) {
+        this.dictionary = dictionary;
+        this.keepOriginal = keepOriginal;
     }
 
     /**
@@ -53,18 +63,42 @@ public final class DictionaryLemmatizer {
      * @throws UncheckedIOException     if the dictionary cannot be read
      */
     public static DictionaryLemmatizer fromConfig(String filterName, Path configDir, String dictionaryFile) {
+        return fromConfig(filterName, configDir, dictionaryFile, false);
+    }
+
+    /**
+     * As {@link #fromConfig(String, Path, String)}, additionally emitting the original token beside each
+     * lemma (see {@link OpenNlpLemmatizer#KEEP_ORIGINAL_SETTING}).
+     */
+    public static DictionaryLemmatizer fromConfig(String filterName, Path configDir, String dictionaryFile,
+                                                  boolean keepOriginal) {
         if (dictionaryFile == null || dictionaryFile.isBlank()) {
             throw new IllegalArgumentException(
                 "[" + filterName + "] token filter requires a '" + DICTIONARY_SETTING + "' setting");
         }
         Path path = configDir.resolve(OpenNlpLemmatizer.MODELS_DIRECTORY).resolve(dictionaryFile);
-        return ModelCache.loadShared(CACHE, path, DictionaryLemmatizer::fromFile);
+        return new DictionaryLemmatizer(
+            ModelCache.loadShared(CACHE, path, DictionaryLemmatizer::load), keepOriginal);
     }
 
     /** Load a flat {@code form<TAB>lemma} dictionary file (UTF-8, one pair per line) into an FST. */
     public static DictionaryLemmatizer fromFile(Path path) {
+        return fromFile(path, false);
+    }
+
+    /** As {@link #fromFile(Path)}, additionally emitting the original token beside each lemma. */
+    public static DictionaryLemmatizer fromFile(Path path, boolean keepOriginal) {
+        return new DictionaryLemmatizer(load(path), keepOriginal);
+    }
+
+    private static Dictionary load(Path path) {
         FstBuilder.Result r = FstBuilder.build(path, DictionaryLemmatizer::parse);
-        return new DictionaryLemmatizer(r.fst(), r.size());
+        return new Dictionary(r.fst(), r.size());
+    }
+
+    /** The shared automaton behind this filter; lets a test assert two filters really share one copy. */
+    Dictionary dictionary() {
+        return dictionary;
     }
 
     /** Parse one {@code form<TAB>lemma} line into its FST key ({@code form}, lower-cased) and lemma bytes. */
@@ -89,10 +123,17 @@ public final class DictionaryLemmatizer {
 
     /** Number of {@code form -> lemma} entries. */
     public int size() {
-        return size;
+        return dictionary.size();
     }
 
     public TokenStream apply(TokenStream input) {
-        return new DictionaryLemmatizerFilter(input, fst);
+        if (!keepOriginal) {
+            return new DictionaryLemmatizerFilter(input, dictionary.fst());
+        }
+        // Repeat each token, the first copy keyword-marked: the filter skips it, so the surface form
+        // survives beside its lemma. RemoveDuplicates then collapses the pair whenever the lemma equals
+        // the original, leaving the extra posting only where a token was really rewritten.
+        var lemmatized = new DictionaryLemmatizerFilter(new KeywordRepeatFilter(input), dictionary.fst());
+        return new RemoveDuplicatesTokenFilter(lemmatized);
     }
 }

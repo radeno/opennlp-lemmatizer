@@ -1,6 +1,7 @@
 package io.github.radeno.lemmatizer.elasticsearch;
 
 import io.github.radeno.lemmatizer.DictionaryLemmatizer;
+import io.github.radeno.lemmatizer.OpenNlpLemmatizer;
 
 import org.apache.lucene.analysis.TokenStream;
 import org.elasticsearch.common.settings.Settings;
@@ -13,7 +14,8 @@ import org.elasticsearch.index.analysis.AbstractTokenFilterFactory;
  * low-memory).
  *
  * <p>Loads a {@code form<TAB>lemma} dictionary from {@code <config>/opennlp/}. Required setting:
- * {@link DictionaryLemmatizer#DICTIONARY_SETTING} (the dictionary file name).
+ * {@link DictionaryLemmatizer#DICTIONARY_SETTING} (the dictionary file name). Optional:
+ * {@link OpenNlpLemmatizer#KEEP_ORIGINAL_SETTING}.
  */
 public class DictionaryLemmatizerTokenFilterFactory extends AbstractTokenFilterFactory {
 
@@ -22,7 +24,10 @@ public class DictionaryLemmatizerTokenFilterFactory extends AbstractTokenFilterF
     public DictionaryLemmatizerTokenFilterFactory(IndexSettings indexSettings, Environment env, String name, Settings settings) {
         super(name); // Elasticsearch 9.x: AbstractTokenFilterFactory(String name)
         this.lemmatizer = DictionaryLemmatizer.fromConfig(
-            name, env.configDir(), settings.get(DictionaryLemmatizer.DICTIONARY_SETTING));
+            name,
+            env.configDir(),
+            settings.get(DictionaryLemmatizer.DICTIONARY_SETTING),
+            settings.getAsBoolean(OpenNlpLemmatizer.KEEP_ORIGINAL_SETTING, false));
     }
 
     @Override

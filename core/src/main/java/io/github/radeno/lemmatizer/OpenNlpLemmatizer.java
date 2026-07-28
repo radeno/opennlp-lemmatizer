@@ -17,6 +17,8 @@ import opennlp.tools.postag.POSTagFormat;
 import opennlp.tools.postag.POSTaggerME;
 
 import org.apache.lucene.analysis.TokenStream;
+import org.apache.lucene.analysis.miscellaneous.KeywordRepeatFilter;
+import org.apache.lucene.analysis.miscellaneous.RemoveDuplicatesTokenFilter;
 import org.apache.lucene.analysis.opennlp.OpenNLPLemmatizerFilter;
 import org.apache.lucene.analysis.opennlp.OpenNLPPOSFilter;
 import org.apache.lucene.analysis.opennlp.tools.NLPLemmatizerOp;
@@ -61,6 +63,17 @@ public final class OpenNlpLemmatizer {
      * {@code true}. Ignored by the model-only {@code opennlp_lemmatizer} filter, which has no dictionary.
      */
     public static final String MODEL_FALLBACK_SETTING = "model_fallback";
+    /**
+     * Token-filter setting emitting the original token alongside its lemma, at the same position
+     * ({@code positionIncrement: 0}), so a document still matches on the surface form when the lemma is
+     * wrong — a bad model guess, a homonym resolved for the wrong domain, or a proper noun the
+     * dictionary lower-cases. Defaults to {@code false}. A token whose lemma equals it is emitted once,
+     * so only genuinely rewritten tokens cost an extra posting.
+     *
+     * <p>Shared by all three filters, including the POS-free {@code dictionary_lemmatizer} — the name
+     * lives here beside the other filter settings rather than being spelled twice.
+     */
+    public static final String KEEP_ORIGINAL_SETTING = "keep_original";
 
     /** Accepted {@link #POS_FORMAT_SETTING} values, lower-cased. */
     private static final Set<String> PENN_POS_FORMATS = Set.of("penn");
@@ -78,14 +91,16 @@ public final class OpenNlpLemmatizer {
     private final Lemmatizer lemmaDictionary;      // nullable; shared, consulted before the model
     private final boolean nativePosTags;           // true -> preserve the model's tagset (POSTagFormat.CUSTOM)
     private final boolean modelFallback;           // false -> dictionary misses leave the token unchanged
+    private final boolean keepOriginal;            // true -> also emit the surface form at the same position
 
-    private OpenNlpLemmatizer(POSModel posModel, LemmatizerModel lemmatizerModel,
-                              Lemmatizer lemmaDictionary, boolean nativePosTags, boolean modelFallback) {
+    private OpenNlpLemmatizer(POSModel posModel, LemmatizerModel lemmatizerModel, Lemmatizer lemmaDictionary,
+                              boolean nativePosTags, boolean modelFallback, boolean keepOriginal) {
         this.posModel = posModel;
         this.lemmatizerModel = lemmatizerModel;
         this.lemmaDictionary = lemmaDictionary;
         this.nativePosTags = nativePosTags;
         this.modelFallback = modelFallback;
+        this.keepOriginal = keepOriginal;
     }
 
     /**
@@ -122,13 +137,23 @@ public final class OpenNlpLemmatizer {
      */
     public static OpenNlpLemmatizer fromConfig(String filterName, Path configDir,
                                                String posModelFile, String lemmatizerModelFile) {
+        return fromConfig(filterName, configDir, posModelFile, lemmatizerModelFile, false);
+    }
+
+    /**
+     * As {@link #fromConfig(String, Path, String, String)}, additionally emitting the original token
+     * beside each lemma (see {@link #KEEP_ORIGINAL_SETTING}).
+     */
+    public static OpenNlpLemmatizer fromConfig(String filterName, Path configDir, String posModelFile,
+                                               String lemmatizerModelFile, boolean keepOriginal) {
         // validated here rather than below, where the message would offer a dictionary this filter has no
         // setting for
         if (isBlank(posModelFile) || isBlank(lemmatizerModelFile)) {
             throw new IllegalArgumentException("[" + filterName + "] token filter requires both '"
                 + POS_MODEL_SETTING + "' and '" + LEMMATIZER_MODEL_SETTING + "' settings");
         }
-        return fromConfig(filterName, configDir, posModelFile, lemmatizerModelFile, null, false, true);
+        return fromConfig(filterName, configDir, posModelFile, lemmatizerModelFile, null, false, true,
+            keepOriginal);
     }
 
     /**
@@ -141,6 +166,18 @@ public final class OpenNlpLemmatizer {
     public static OpenNlpLemmatizer fromConfig(String filterName, Path configDir, String posModelFile,
                                                String lemmatizerModelFile, String lemmatizerDictFile,
                                                boolean nativePosTags, boolean modelFallback) {
+        return fromConfig(filterName, configDir, posModelFile, lemmatizerModelFile, lemmatizerDictFile,
+            nativePosTags, modelFallback, false);
+    }
+
+    /**
+     * As {@link #fromConfig(String, Path, String, String, String, boolean, boolean)}, additionally
+     * emitting the original token beside each lemma (see {@link #KEEP_ORIGINAL_SETTING}).
+     */
+    public static OpenNlpLemmatizer fromConfig(String filterName, Path configDir, String posModelFile,
+                                               String lemmatizerModelFile, String lemmatizerDictFile,
+                                               boolean nativePosTags, boolean modelFallback,
+                                               boolean keepOriginal) {
         if (isBlank(posModelFile)) {
             throw new IllegalArgumentException(
                 "[" + filterName + "] token filter requires a '" + POS_MODEL_SETTING + "' setting");
@@ -154,7 +191,8 @@ public final class OpenNlpLemmatizer {
         Path dir = configDir.resolve(MODELS_DIRECTORY);
         Path dictPath = isBlank(lemmatizerDictFile) ? null : dir.resolve(lemmatizerDictFile);
         Path modelPath = isBlank(lemmatizerModelFile) ? null : dir.resolve(lemmatizerModelFile);
-        return fromModels(dir.resolve(posModelFile), modelPath, dictPath, nativePosTags, modelFallback);
+        return fromModels(dir.resolve(posModelFile), modelPath, dictPath, nativePosTags, modelFallback,
+            keepOriginal);
     }
 
     /** Load directly from the two model file paths (no lemmatizer dictionary). */
@@ -182,6 +220,16 @@ public final class OpenNlpLemmatizer {
      */
     public static OpenNlpLemmatizer fromModels(Path posModelPath, Path lemmatizerModelPath, Path dictPath,
                                                boolean nativePosTags, boolean modelFallback) {
+        return fromModels(posModelPath, lemmatizerModelPath, dictPath, nativePosTags, modelFallback, false);
+    }
+
+    /**
+     * As {@link #fromModels(Path, Path, Path, boolean, boolean)}, additionally emitting the original token
+     * beside each lemma (see {@link #KEEP_ORIGINAL_SETTING}).
+     */
+    public static OpenNlpLemmatizer fromModels(Path posModelPath, Path lemmatizerModelPath, Path dictPath,
+                                               boolean nativePosTags, boolean modelFallback,
+                                               boolean keepOriginal) {
         if (dictPath == null && (lemmatizerModelPath == null || !modelFallback)) {
             throw new IllegalArgumentException(
                 "a lemmatizer model is required when there is no dictionary to fall back on");
@@ -193,7 +241,7 @@ public final class OpenNlpLemmatizer {
                 ? ModelCache.loadShared(LEMMA_MODEL_CACHE, lemmatizerModelPath, p -> load(p, LemmatizerModel::new, "lemmatizer"))
                 : null,
             dictPath == null ? null : ModelCache.loadShared(DICTIONARY_CACHE, dictPath, FstPosDictionaryLemmatizer::fromFile),
-            nativePosTags, modelFallback);
+            nativePosTags, modelFallback, keepOriginal);
     }
 
     /** Wrap {@code input} with the OpenNLP POS tagger followed by the lemmatizer. */
@@ -201,7 +249,15 @@ public final class OpenNlpLemmatizer {
         // Lucene's NLPPOSTaggerOp hard-codes POSTagFormat.PENN; for a non-Penn model (e.g. UPOS+gender)
         // use a CUSTOM-format tagger so the dictionary sees the tags the model actually emits.
         var posOp = nativePosTags ? new NativeFormatPosTaggerOp(posModel) : new NLPPOSTaggerOp(posModel);
-        var tagged = new OpenNLPPOSFilter(input, posOp);
+        TokenStream tagged = new OpenNLPPOSFilter(input, posOp);
+        // The repeat must sit AFTER the tagger: doubling the stream ahead of it would make the tagger read
+        // "v v Bratislave Bratislave …" and tag nonsense. Both lemmatizer filters below skip the
+        // keyword-marked copy, so it survives as the surface form.
+        TokenStream toLemmatize = keepOriginal ? new KeywordRepeatFilter(tagged) : tagged;
+        return dedupe(lemmatize(toLemmatize));
+    }
+
+    private TokenStream lemmatize(TokenStream tagged) {
         if (lemmaDictionary != null) {
             // POS-aware: shared dictionary first, MaxEnt model fallback unless it was turned off
             return new OpenNlpPosLemmatizerFilter(tagged, lemmaDictionary, modelFallback ? lemmatizerModel : null);
@@ -213,6 +269,11 @@ public final class OpenNlpLemmatizer {
             throw new UncheckedIOException("Failed to initialize OpenNLP lemmatizer", e);
         }
         return new OpenNLPLemmatizerFilter(tagged, lemmaOp);
+    }
+
+    /** Collapse the repeated copy of a token the lemmatizer left unchanged, so only rewrites cost a posting. */
+    private TokenStream dedupe(TokenStream lemmatized) {
+        return keepOriginal ? new RemoveDuplicatesTokenFilter(lemmatized) : lemmatized;
     }
 
     private static boolean isBlank(String s) {

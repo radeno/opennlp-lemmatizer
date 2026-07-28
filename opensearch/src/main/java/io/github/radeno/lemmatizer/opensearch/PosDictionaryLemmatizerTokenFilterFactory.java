@@ -13,9 +13,9 @@ import org.opensearch.index.analysis.AbstractTokenFilterFactory;
  * OpenSearch token filter combining a POS-aware {@code form<TAB>POS<TAB>lemma} dictionary (e.g.
  * MULTEXT-East) with the OpenNLP MaxEnt model as fallback: the dictionary is consulted first and the
  * model fills only the gaps. Required settings (files under {@code <config>/opennlp/}):
- * {@code pos_model}, {@code lemmatizer_model}, {@code dictionary}. Optional: {@code pos_format}
- * and {@code model_fallback} (set it to {@code false} for a pure dictionary filter, which also makes
- * {@code lemmatizer_model} unnecessary).
+ * {@code pos_model}, {@code lemmatizer_model}, {@code dictionary}. Optional: {@code pos_format},
+ * {@code model_fallback} (set it to {@code false} for a pure dictionary filter, which also makes
+ * {@code lemmatizer_model} unnecessary) and {@code keep_original}.
  */
 public class PosDictionaryLemmatizerTokenFilterFactory extends AbstractTokenFilterFactory {
 
@@ -35,7 +35,8 @@ public class PosDictionaryLemmatizerTokenFilterFactory extends AbstractTokenFilt
             settings.get(OpenNlpLemmatizer.LEMMATIZER_MODEL_SETTING),
             dictionary,
             OpenNlpLemmatizer.isNativePosFormat(name, settings.get(OpenNlpLemmatizer.POS_FORMAT_SETTING)),
-            settings.getAsBoolean(OpenNlpLemmatizer.MODEL_FALLBACK_SETTING, true));
+            settings.getAsBoolean(OpenNlpLemmatizer.MODEL_FALLBACK_SETTING, true),
+            settings.getAsBoolean(OpenNlpLemmatizer.KEEP_ORIGINAL_SETTING, false));
     }
 
     @Override

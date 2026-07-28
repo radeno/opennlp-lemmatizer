@@ -42,6 +42,22 @@ public class OpenNlpLemmatizerOpenSearchTests extends OpenSearchTokenStreamTestC
         assertTokenStreamContents(filter.create(tokenizer), new String[] { "děkovat", "že", "být", "přijít" });
     }
 
+    /** The {@code keep_original} setting must survive the real settings path, not just the core API. */
+    public void testKeepOriginalThroughFilterSettings() throws IOException {
+        Path pos = Paths.get(MODELS_DIR, "cs-pos.bin");
+        Path lemma = Paths.get(MODELS_DIR, "cs-lemmas.bin");
+        assumeTrue("Czech OpenNLP models not found in " + MODELS_DIR + " (run scripts/fetch-models.sh cs)",
+            Files.isReadable(pos) && Files.isReadable(lemma));
+
+        TokenFilterFactory filter = createAnalysis(pos, lemma).tokenFilter.get("cs_lemma_keep_original");
+        Tokenizer tokenizer = new WhitespaceTokenizer();
+        tokenizer.setReader(new StringReader("Děkuji že jsi přišel"));
+        // each rewritten token keeps its surface form at the same position; "že" is its own lemma
+        assertTokenStreamContents(filter.create(tokenizer),
+            new String[] { "Děkuji", "děkovat", "že", "jsi", "být", "přišel", "přijít" },
+            new int[] { 1, 0, 1, 1, 0, 1, 0 });
+    }
+
     private OpenSearchTestCase.TestAnalysis createAnalysis(Path pos, Path lemma) throws IOException {
         Path home = createTempDir();
         Path config = home.resolve("config").resolve(OpenNlpLemmatizer.MODELS_DIRECTORY);
