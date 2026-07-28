@@ -16,6 +16,10 @@ This experiment disambiguates them with **grammatical gender**: a POS model trai
 
 ## Use (`pos_format: native`)
 
+> Needs three files in `config/opennlp/`: `sk-gender.bin` + `sk-gender-dict.txt` (from
+> `fetch-models.sh sk-gender`) **and** `sk-lemmas.bin` (from the base `fetch-models.sh sk`) — the gender
+> model is only a POS tagger, so the `lemmatizer_model` still comes from the standard Slovak lemma model.
+
 ```bash
 curl -XPOST localhost:9201/_analyze -H 'Content-Type: application/json' -d '{
   "tokenizer": "whitespace",
@@ -103,4 +107,5 @@ plus `python3`, `gzip`, JDK 25):
 4. lowercase + combine, train an OpenNLP POS model → `sk-gender.bin`
 5. build the gender-keyed dictionary from MULTEXT-East → `sk-gender-dict.txt`
 
-Then copy both into the node's `config/opennlp/` and analyze with `pos_format: native`.
+Then copy both into the node's `config/opennlp/` (alongside `sk-lemmas.bin` — the `lemmatizer_model` the
+filter still needs) and analyze with `pos_format: native`.
