@@ -207,7 +207,9 @@ For older steady-state library microbenchmarks (no HTTP): CharArrayMap ~40M, fla
 ## Verified
 
 All three filters (`opennlp_lemmatizer`, `dictionary_lemmatizer`, `pos_dictionary_lemmatizer`) were
-installed and exercised on real nodes — **OpenSearch 3.7.0** and **Elasticsearch 9.4.3** — loading
+installed and exercised on real nodes — **OpenSearch 3.7.0** and **Elasticsearch 9.4.4** — loading
 cleanly (no JarHell; Elasticsearch needs no extra entitlements for `config/opennlp/` reads).
+(The comparison tables above were measured on Elasticsearch 9.4.3; re-running the filters on 9.4.4
+under v0.3.0 gave identical output, so they were not re-measured.)
 `opennlp_lemmatizer`: `_analyze "Děkuji že jsi přišel"` → `děkovat že být přijít` on both. The Slovak
 comparisons above are live `_analyze` output from the OpenSearch 3.7 node.

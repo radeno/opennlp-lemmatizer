@@ -13,8 +13,10 @@ It also ships a **`pos_dictionary_lemmatizer`** (POS-aware dictionary, model fal
 precise lemmas on known words, and a faster, POS-free **`dictionary_lemmatizer`** (flat `form → lemma`
 lookup) for when raw speed matters more than disambiguation — see [Use](#use).
 
-> **Verified end-to-end** on real nodes: OpenSearch **3.7.0** and Elasticsearch **9.4.3**
-> (`_analyze "Děkuji že jsi přišel"` → `děkovat že být přijít` on both).
+> **Verified end-to-end** on real nodes: OpenSearch **3.7.0** and Elasticsearch **9.4.4**, with the
+> **v0.3.0** zips installed from the GitHub Release below — `_analyze "Děkuji že jsi přišel"` →
+> `děkovat že být přijít`, and `keep_original`, `model_fallback` and the `pos_format` rejection all
+> behave identically on both.
 
 ## Modules
 
@@ -209,7 +211,7 @@ curl -XPOST localhost:9200/_analyze -H 'Content-Type: application/json' -d '{
 # tokens: tři  žena  nést  tři  jablko
 ```
 
-Both verified on real nodes (**OpenSearch 3.7.0** and **Elasticsearch 9.4.3**, identical output):
+Both verified on real nodes (**OpenSearch 3.7.0** and **Elasticsearch 9.4.4**, identical output):
 
 - **Slovak / MULTEXT-East** beats the deployed jLemmaGen on the cases that matter — `je → byť`
   (jLemmaGen: `jesť`), `tri → tri` (jLemmaGen mangles capitalised `Tri`), `priatelia → priateľ` — at
