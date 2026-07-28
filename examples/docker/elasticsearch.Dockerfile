@@ -4,13 +4,13 @@
 #
 # Build (from the repo root):
 #   docker build -f examples/docker/elasticsearch.Dockerfile \
-#     --build-arg ELASTICSEARCH_VERSION=9.4.3 --build-arg LANGS="cs sk" -t elasticsearch-opennlp:9.4.3 .
+#     --build-arg ELASTICSEARCH_VERSION=9.4.4 --build-arg LANGS="cs sk" -t elasticsearch-opennlp:9.4.4 .
 #
 # LANGS is a space-separated list passed to fetch-models.sh (e.g. "cs sk", "sk-mte", or "sk-mte-pos").
 # The plugin's elasticsearch.version must match the base image exactly — the build-arg handles both.
 #
 # syntax=docker/dockerfile:1
-ARG ELASTICSEARCH_VERSION=9.4.3
+ARG ELASTICSEARCH_VERSION=9.4.4
 
 # --- stage 1: build the plugin for this exact version + fetch the models ---
 FROM maven:3.9-eclipse-temurin-25 AS build

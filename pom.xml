@@ -24,11 +24,11 @@
 
     <!-- engine — same Lucene (10.4.0) is used by both OpenSearch 3.7 and Elasticsearch 9.4 -->
     <lucene.version>10.4.0</lucene.version>
-    <opennlp.version>2.5.10</opennlp.version>
+    <opennlp.version>2.5.11</opennlp.version>
 
     <!-- target platforms (latest of each) -->
     <opensearch.version>3.7.0</opensearch.version>
-    <elasticsearch.version>9.4.3</elasticsearch.version>
+    <elasticsearch.version>9.4.4</elasticsearch.version>
 
     <!-- test -->
     <log4j.version>2.26.1</log4j.version>

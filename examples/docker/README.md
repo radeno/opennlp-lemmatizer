@@ -13,7 +13,7 @@ docker build -f examples/docker/opensearch.Dockerfile \
 
 # Elasticsearch
 docker build -f examples/docker/elasticsearch.Dockerfile \
-  --build-arg ELASTICSEARCH_VERSION=9.4.3 --build-arg LANGS="cs sk" -t elasticsearch-opennlp:9.4.3 .
+  --build-arg ELASTICSEARCH_VERSION=9.4.4 --build-arg LANGS="cs sk" -t elasticsearch-opennlp:9.4.4 .
 ```
 
 `LANGS` is passed straight to `fetch-models.sh`, so it accepts the official OpenNLP model languages

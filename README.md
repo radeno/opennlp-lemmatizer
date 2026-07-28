@@ -39,11 +39,11 @@ mvn clean package
 ```
 
 **Plugins must match your node version exactly.** Defaults: OpenSearch `3.7.0`, Elasticsearch
-`9.4.3`. Build for a different node:
+`9.4.4`. Build for a different node:
 
 ```bash
 mvn -pl opensearch    -am package -Dopensearch.version=3.7.0
-mvn -pl elasticsearch -am package -Delasticsearch.version=9.4.3
+mvn -pl elasticsearch -am package -Delasticsearch.version=9.4.4
 ```
 
 ## Models
@@ -60,7 +60,7 @@ are included. Fetch them from Maven Central with the helper:
 
 Place them in your node's `config/opennlp/` directory.
 
-> **Versions matter.** The plugin bundles Apache **OpenNLP `opennlp-tools` 2.5.10**, and
+> **Versions matter.** The plugin bundles Apache **OpenNLP `opennlp-tools` 2.5.11**, and
 > `fetch-models.sh` pulls **models 1.3.0** (trained with OpenNLP 2.5.4). Any 2.5.x engine reads
 > those models unchanged — lemma output is byte-identical across the line — but a major mismatch
 > (3.x) is untested and can fail to load. (Lucene 10.4.0, JDK 25.)
