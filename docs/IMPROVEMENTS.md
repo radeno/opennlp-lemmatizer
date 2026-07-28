@@ -1,36 +1,12 @@
 # Improvements & known shortcomings
 
 A running log of known limitations and ideas for later — so a future session can pick up with
-context instead of rediscovering them. Add entries as you find them; remove them when fixed (and
-mention the fix in the commit). Evidence/numbers come from real node tests (ES 9.4.3 + OS 3.7.0)
-unless noted.
+context instead of rediscovering them. Add entries as you find them; when one is fixed or a question
+is answered, move it to **[Settled](#settled--do-not-re-investigate)** with the evidence rather than
+deleting it, so it is not re-investigated. Evidence/numbers come from real node tests (ES 9.4.3 +
+OS 3.7.0) unless noted.
 
 ## Known shortcomings
-
-### S1. `lowercase`-before-POS mis-tags some common words (`pos_dictionary_lemmatizer`)
-- **Symptom:** `Hostia → host` (should be `hosť`) — 10× in a 104-sentence Slovak test. Also
-  `saunu → saunuť` (should be `sauna`).
-- **Cause:** the filter is case-sensitive, so users chain a `lowercase` filter *before* it. That
-  lowercased text reaches the **internal OpenNLP POS tagger**, which mistags some words (e.g.
-  `hostia`), and the wrong POS makes the dictionary miss → the MaxEnt model returns a poor lemma.
-- **Trade-off:** lowercasing *helps* proper nouns (they get tagged `NN`, hit the dictionary, and the
-  stored lemma keeps its case: `Bratislave → Bratislava`). So it both helps and hurts.
-- **Impact:** coverage regression on a handful of common words vs jLemmaGen. `pos_dictionary_lemmatizer`
-  still wins decisively on everything contextual (homonyms `je → byť` 12×, prepositions `do`, `pri`,
-  case, foreign words). See S→idea **I1** for a possible fix.
-
-### S2. Gender-homonyms drop out of the dictionary and the model misguesses them
-- **Symptom:** `hrady → hrada`, `hradu → hrada` (should be `hrad`). Also `autom → aut` (should be
-  `auto`), `banku → bank` (should be `banka`), etc.
-- **Cause (verified in raw MTE):** the form is genuinely two words distinguished only by **gender** —
-  `hrady` is masculine `hrad` (`Ncmp…`) *and* feminine `hrada` (`Ncfp…`); both map to Penn `NN`. So
-  `(hrady, NN)` has two lemmas → `-mte-pos`'s single-lemma rule **drops it**, and at runtime the MaxEnt
-  model fills the gap and guesses the wrong one. The OpenNLP tagset (`NN`) is coarser than the MSD —
-  it carries no gender — so part of speech cannot disambiguate these.
-- **Scope:** ~**1,025 common-word** gender-homonyms in the Slovak dictionary (plus 97 proper-name
-  pairs), not just `hrad`. Many are meaningful (`auto`/`aut`, `banka`/`bank`, `axióma`/`axióm`).
-- **Impact + fix:** see section **G** below — the practical fix is a frequency-preferring collapse
-  (**I2**), not gender tagging (empirically capped at ~87%, see **G**).
 
 ### S3. MTE casing/coverage gaps (data, not a bug)
 - **Symptom:** proper nouns MTE only knows as common nouns lemmatize lowercase (`Tatry → tatra`);
@@ -44,42 +20,50 @@ unless noted.
   jLemmaGen's RDR rules sometimes generalise better here (`teplý`, `čistý`, `srna`).
 - **Cause:** not in the MTE `(form, POS)` table → MaxEnt model fallback, which is weaker than a
   rule engine on regular morphology it never memorised.
-- **Impact:** the inherent ceiling of dictionary+model vs a rule generaliser on unseen regulars.
+- **Impact:** the inherent ceiling of dictionary+model vs a rule generaliser on unseen regulars. The
+  `model_fallback: false` setting turns the guessing off (token left unchanged) but does not lemmatise
+  these either — it trades recall for predictability.
+
+### S5. Residual homonyms the corpus-frequency merge cannot settle
+- **Symptom:** `hrady → hrada` (should be `hrad`), `zámky → zámka`, `angínu → angín`.
+- **Cause:** two independent limits. (a) **Near-tie corpus frequencies** — Fix A resolved `hrady` from
+  general Wikipedia where `hrad` 18 vs `hrada` 19, i.e. noise decided it (see
+  [experiments/homonym-resolution](../experiments/homonym-resolution/README.md)). (b) The gender path
+  hits the tagger's **~87 % gender ceiling** and mis-genders some of the same forms.
+- **Impact:** small and shrinking — the class is ~1,025 forms and both fixes already recover most of
+  it. A domain corpus regenerates better frequencies (`resolve-homonyms.sh`), which is the cheapest
+  remaining lever. `plese → ples` vs `pleso` is the canonical domain-dependent case.
+
+### S6. Whole-field POS tagging is unbounded in memory on long fields
+- **Symptom:** analysing one very long field holds a `cloneAttributes()` copy of **every token of the
+  field** at once (~106 MB measured on a large field, vs ~1 MB for a streaming chunker).
+- **Cause:** Lucene's `OpenNLPPOSFilter` buffers up to a change in `SentenceAttribute`, and only
+  `OpenNLPTokenizer` ever sets it. Behind the `whitespace` tokenizer every example uses, the attribute
+  stays 0, so the whole field is one "sentence".
+- **Impact:** memory only — **lemma quality is not affected** (measured: see
+  [Settled](#settled--do-not-re-investigate)). Fix is parked and ready in
+  [experiments/sentence-segmentation](../experiments/sentence-segmentation/README.md) (approach A,
+  punctuation heuristic). Ship it only if long-document heap becomes a real constraint; it also makes
+  very long fields ~37 % faster while costing ~15 % on medium ones.
 
 ## Ideas / improvements
-
-### I1. Decouple POS-tagging case from lookup case (addresses S1) — most promising
-POS-tag on the **original-case** token, then lower-case **only for the FST lookup**. The tagger sees
-real case (so `Hostia` tags correctly) while matching stays case-insensitive and the lemma keeps its
-case. Would need the lowercasing to move *inside* `OpenNlpPosLemmatizerFilter` (fold the term just for
-the `FstPosDictionaryLemmatizer` key), instead of an upstream `lowercase` filter — i.e. make the
-filter case-insensitive on lookup again, but keep lemma-case output. Re-run the 104-sentence test to
-confirm it fixes `Hostia → hosť` without regressing proper nouns.
-
-### I2. Frequency-preferring collapse (addresses S2) — recommended fix
-In `fetch-models.sh -mte-pos`, when a `(form, POS)` maps to several lemmas, **keep the most frequent
-lemma** instead of dropping it. For ~all of the ~1,025 gender-homonyms one sense dominates
-(`auto` ≫ `aut`, `banka` ≫ `bank`, `hrad` ≫ `hrada`), so this recovers the common reading correctly
-at near-zero cost — and **beats gender tagging**, which section **G** shows is capped at ~87% even
-with UDPipe. Risk: picks the dominant lemma when the rare sense is actually meant; tune the frequency
-proxy (MTE entry count vs a corpus count) and re-run the 104-sentence test.
 
 ### I3. Optional proper-noun gazetteer overlay (addresses S3)
 Layer a small curated proper-noun list (Tatry, Karpaty, Ružinov, …) over the MTE dictionary so known
 toponyms lemmatise with correct case/coverage. Keep it separate from the MTE build for licensing.
 
 ### I4. Zero-allocation FST lookup (perf, low priority)
-`FstPosDictionaryLemmatizer.lemmatize` allocates a `BytesRef` + `utf8ToString()` per token. The POS
-tagger dominates runtime (~6k tok/s, see below), so this is invisible at the node level — but a
-reusable `BytesRefBuilder` and walking the FST off the term `char[]` would remove it if the POS path
-is ever optimised.
+`FstPosDictionaryLemmatizer.lemmatize` allocates a `BytesRef` (`word + '\t' + tag`) plus a
+`utf8ToString()` per token. `DictionaryLemmatizerFilter` already avoids the key allocation with a
+reused `BytesRefBuilder`; the POS-aware one could do the same by encoding form and tag into one reused
+buffer. The POS tagger dominates runtime (~6k tok/s), so this is invisible at the node level — only
+worth doing if the POS path is ever optimised.
 
 ### I5. Investigate `dictionary_lemmatizer` node throughput
 Measured **17k tok/s** for the flat `dictionary_lemmatizer` vs **132k** for jLemmaGen on the same node
-(`_analyze`, 4490 tokens) — the flat CharArrayMap path is ~8× slower than jLemmaGen's automaton.
-Surprising for an O(1) lookup; investigate cache behaviour of the 922k-entry map, or whether
-`_analyze` overhead skews it. (Earlier microbench suggested ~340k tok/s, so methodology matters —
-see I7.)
+(`_analyze`, 4490 tokens). Both numbers predate the FST switch and were taken through `_analyze`, so
+they include HTTP + JSON overhead; an earlier microbench suggested ~340k tok/s for the same lookup.
+Re-measure with I7's methodology before drawing any conclusion — the gap may be mostly harness.
 
 ### I6. UDPipe lemmatizer (`udpipe_lemmatizer`) — separate native plugin
 Pending 4th analyzer. Native JNI (UDPipe), needs a Linux `.so` for Docker (only macOS `.dylib`
@@ -89,121 +73,160 @@ Ship as its own plugin (CC BY-NC-SA models), not in the Apache pure-Java plugin.
 ### I7. Cleaner throughput benchmark methodology
 Node `_analyze` numbers include HTTP + JSON overhead and are single-threaded, so absolute tok/s is
 noisy (especially for the fast flat filters). For trustworthy numbers use bulk-index timing or an
-in-JVM/JMH harness against the analyzer directly.
+in-JVM/JMH harness against the analyzer directly. Blocks a trustworthy answer to I5.
 
-## G. Gender disambiguation — investigation, distillation & real-world test
+`KeepOriginalBenchmarkTest` is a first working piece of this: in-JVM, alternating rounds, time-sized
+measurement windows, and it prints its own noise floor. It measures one setting against another rather
+than filter against filter, so I5 still needs its own harness — but the shape (and the corpus in
+`experiments/sentence-segmentation/articles`) can be reused. Note what it revealed: the POS-aware path
+is noisy enough (±10 %) that any comparison there needs this treatment to mean anything.
 
-**Problem.** ~1,025 common Slovak words are gender-homonyms that the coarse OpenNLP `NN` tag cannot
-disambiguate (S2): `hrady` = `hrad`(m)/`hrada`(f), `autom` = `auto`(n)/`aut`(m), `banku` =
-`banka`(f)/`bank`(m), … The dictionary drops them and the model misguesses. Fixing them "properly"
-needs a tagger that emits **grammatical gender**, which OpenNLP's tagset doesn't.
+### I9. `ModelCache` never releases a superseded artifact
+`ModelCache.loadShared` replaces an entry when `(size, lastModified)` changes and otherwise keeps every
+loaded path forever — there is no eviction when the last index using a dictionary is deleted or
+re-pointed. Bounded by "one live entry per path", so with the FST dictionaries (~1.5–2 MB) it is
+negligible; it matters only for the multi-MB POS models (the 24 MB gender model, 9 MB `cs-pos.bin`) on
+a node that repeatedly recreates indices with different models. A reference count or a
+`WeakReference`/`Cleaner`-based release would fix it if that ever shows up in a heap dump.
 
-**Can we train an OpenNLP tagger to emit gender?** Tried it. Tagset = UPOS+Gender (`NOUN.Masc/Fem/Neut`),
-trained with the OpenNLP CLI `POSTaggerTrainer`, evaluated on the UD Slovak-SNK gold test:
+### I10. `NativeFormatPosTaggerOp` builds an unused Penn tagger per stream
+Its `super(model)` constructs Lucene's `POSTaggerME(model, POSTagFormat.PENN)`, which is then never
+used because `getPOSTags` delegates to the CUSTOM-format tagger. That is one wasted `POSTaggerME`
+construction per token stream on the `pos_format: native` path. Avoidable only by not extending
+`NLPPOSTaggerOp` (Lucene's `OpenNLPPOSFilter` takes that concrete type, so it would need a different
+filter) — record it as a known cost rather than a fix worth its complexity today.
 
-| training data | tokens | overall tag acc | **gender acc** |
-|---|---|---|---|
-| UD Slovak-SNK (gold) | 80k | 83.8% | 80.5% |
-| + MTE-1984 corpus (gold) | 184k | 82.6% | 82.5% |
-| UDPipe-tagged Wikipedia (silver, distillation) | 1.13M | 87.6% | 85.8% |
-| silver + gold (partial silver, segfault) | 1.31M | 88.0% | 86.2% |
-| **silver + gold (full 300k re-tagged)** | 5.18M | 89.1% | **87.89%** |
-| **UDPipe itself (teacher ceiling)** | — | — | 87.25% |
+## Settled — do not re-investigate
 
-**Distillation works.** Using UDPipe to tag a large raw corpus → training OpenNLP on the silver took
-pure-Java OpenNLP from 80.5% → **86.2%** gender, **~1 point off the UDPipe teacher (87.25%)** — nearly
-saturating the teacher, with **no native dependency at runtime**.
+Questions that were measured and closed. The evidence lives in the linked experiment folders.
 
-**Real-world test (the one that matters).** Accuracy alone is misleading: what counts is gender-dict
-vs the *current* behaviour. We built a gender-keyed noun dict from MTE and ran 35 sentences containing
-gender-homonyms (`auto`/`aut`, `banka`/`bank`, `hrad`/`hrada`, `more`/`mor`, …), comparing the lemma
-each approach gives the target word:
+### ✅ I1 — original-case POS tagging: **rejected, measured net negative**
+The idea (tag on original case, lower-case only for the FST key, so `Hostia` tags correctly) was the
+top-ranked improvement here for a long time. Measured on 6 real Slovak articles (1019 tokens) it
+differs from today on 6 tokens and **today wins 3 : 1**: `Rakúskom → Rakúsko` ✓, `Španielsku →
+Španielsko` ✓, `Chorvátsku → Chorvátsko` ✓ vs `Najstaršie → starý` ✗. Inflected capitalised country
+names tag as proper/adjective and mis-lemmatise; lower-casing them first yields `NN`, which the
+dictionary resolves correctly. **Lower-casing before the tagger helps** — the opposite of the
+assumption. Full table: [experiments/sentence-segmentation](../experiments/sentence-segmentation/README.md) §3.
 
-| approach | correct | |
+### ✅ I2 — frequency-preferring homonym collapse: **shipped as Fix A**
+Implemented as corpus-frequency resolution, not the originally proposed MTE-count collapse:
+UDPipe lemmatises a large corpus and each dropped `(form, POS)` keeps the lemma the corpus most often
+produces. **4,793 dropped → 1,122 resolved**, committed as `sk-homonyms.txt` and auto-merged by
+`fetch-models.sh sk-mte-pos`. Recovers `hradu → hrad`, `hostia → hosť`, `autom → auto`, `more → more`.
+**The MTE-entry-count variant was measured and is worse than doing nothing** (26/35 = 74 % vs a 27/35 =
+77 % baseline) — MTE paradigm counts are not corpus frequency. Details:
+[experiments/homonym-resolution](../experiments/homonym-resolution/README.md).
+
+### ✅ Fix B — POS-relaxed `*` rows
+`fetch-models.sh` emits one `form<TAB>*<TAB>lemma` row per form that has a single lemma across all its
+readings; the filter retries under `*` before the model fallback. Recovers tagger mis-tags such as
+`saunu → sauna` (was `saunuť`). Together with Fix A this closed most of the common-word gap to
+jLemmaGen while keeping the POS-aware advantage (`je → byť`).
+
+### ✅ Gender disambiguation — **shipped, opt-in**
+A distilled UPOS+gender POS model plus a gender-keyed dictionary, riding the existing
+`pos_dictionary_lemmatizer` via `pos_format: native` — no new filter. Prebuilt artifacts ship as a
+GitHub Release (`./scripts/fetch-models.sh sk-gender`) and rebuild with
+`experiments/gender/build-gender-model.sh`. On the node it beats the Penn path **13/15 vs 11/15** on
+gender-homonyms; on a 35-sentence real-world test **30/35 (86 %) vs 27/35 (77 %)** for the current
+behaviour. Distillation from a UDPipe teacher took a pure-Java MaxEnt tagger from 80.5 % → **87.9 %**
+gender accuracy, matching the teacher's 87.25 % ceiling, with no native runtime dependency. Residual
+errors are the tagger's genuine ~13 % gender mistakes (S5). All tables, the training curve, model sizes
+and the reproduce script: [experiments/gender](../experiments/gender/README.md).
+
+Two sub-findings worth keeping: Lucene's `NLPPOSTaggerOp` hard-codes `POSTagFormat.PENN`, which
+silently coerced `NOUN.Masc` → `?` and made the gender dictionary miss everything — this is documented
+`POSTagFormat` behaviour, not a bug, and is what `pos_format: native` exists to bypass. And the
+`toPennTag` normaliser in the filter is required alongside it, so out-of-dictionary words still reach
+the Penn-trained MaxEnt model with a tag it understands.
+
+### ✅ Sentence segmentation for POS tagging — **investigated, not shipped**
+Three approaches measured (punctuation heuristic, OpenNLP `SentenceDetectorME`, original-case tagging).
+**Lemma quality does not improve — it slightly worsens** (net −1 token per ~1000): the dictionary
+already absorbs POS drift (`NN ↔ NNP` → same lemma), the `*` rows catch mis-tags, and the MaxEnt
+lemmatizer is nearly POS-insensitive. The ML detector is strictly worse than the heuristic *in this
+pipeline* because it keys on capitals after a period, which the upstream `lowercase` filter destroys.
+Only real benefit is memory — kept open as **S6**. Code and numbers preserved in
+[experiments/sentence-segmentation](../experiments/sentence-segmentation/README.md).
+
+### ✅ I8 — `keep_original`: **shipped on all three filters**
+`keep_original: true` emits the surface form beside each lemma at `positionIncrement: 0`, so a document
+still matches on what was written when the lemma is wrong (a model guess, a domain-wrong homonym per
+**S5**, a proper noun the dictionary lower-cases per **S3**). A token whose lemma equals it is emitted
+once, so only real rewrites cost a posting.
+
+Implemented by composition rather than new filter logic: `KeywordRepeatFilter` → the lemmatizer →
+`RemoveDuplicatesTokenFilter`, with the repeat placed **after** the POS tagger. That placement is the
+whole point — the `keyword_repeat` recipe the README already documented sits *before* the filter, so the
+tagger reads every token twice and its `type` tags shift; the setting does not. All three filters
+(including Lucene's own `OpenNLPLemmatizerFilter`) honour `KeywordAttribute` correctly, verified
+empirically by protecting a single token and confirming the following lemmas do not shift — an earlier
+reading of the bytecode suggested an off-by-one there and was **wrong**.
+
+One structural change came with it: `ModelCache` now caches the flat dictionary's FST rather than the
+`DictionaryLemmatizer` wrapper, because the wrapper carries per-filter settings — two indices reading
+one dictionary file with different `keep_original` values must still share a single automaton.
+
+**Measured** (`KeepOriginalBenchmarkTest`, 1019 tokens of real Slovak from the 6 articles in
+`experiments/sentence-segmentation/articles`):
+
+| filter | tokens rewritten → extra postings | throughput off → on |
 |---|---|---|
-| current (coarse POS → model fallback) | 27/35 | **77%** |
-| frequency collapse using **MTE entry counts** | 26/35 | 74% (worse!) |
-| **distilled gender tagger → gender dict** | 30/35 | **86%** |
+| `pos_dictionary_lemmatizer` | 51.4 % | 84.5k → 83.5k tok/s (within ±9.9 % noise) |
+| `dictionary_lemmatizer` | 49.5 % | 3.39M → 2.49M tok/s (**−26.6 %**) |
+| `opennlp_lemmatizer` | 47.4 % | 10.29k → 10.29k tok/s (within ±1.1 % noise) |
 
-**Corrected verdict (supersedes the pessimistic read above).**
-- **Gender wins in reality: 86% vs 77% (+9 pts)** on the homonym class. It fixed `hrady→hrad`,
-  `banku→banka`, `mena→mena`, `diel→diel`, `repy→repa`. The "~87% ceiling → not enough" argument was
-  *wrong* for this use case: the baseline (model fallback) is only 77% on these hard words, so even an
-  imperfect gender tagger is a net improvement.
-- It also *introduced* a couple of regressions where the tagger mis-genders a common word
-  (`autom→aut`, `more→mor`) — net +3. A larger/cleaner silver set should shrink these (see below).
-- **Frequency collapse with MTE entry counts is a bad idea** (74%, worse than doing nothing): MTE
-  paradigm-entry counts are not corpus frequency (`hrady→hrada`, `lese→lesa`). Revised **I2**: a
-  frequency collapse needs a *real corpus* frequency list (e.g. counted from the UDPipe-lemmatised
-  silver Wikipedia), not MTE counts.
+The cost is **postings, not CPU**: Slovak inflection rewrites about half of all tokens, so the postings
+list grows by about half. The POS-aware filters are tagger-bound and absorb the extra work entirely;
+only the flat filter, which does almost nothing else per token, shows it. Lemma quality cannot regress —
+the benchmark asserts the lemma stream is byte-identical with the setting on, and that the extra
+postings equal the rewrite count exactly (no token is doubled twice).
 
-**So gender distillation is a viable, net-positive improvement** for the ~1,025-form homonym class —
-worth a real module + `_analyze` node test *if those words matter* (it is still only ~0.12% of the
-dictionary, and needs the distillation pipeline + a new gender-keyed FST dict + a custom filter).
+The benchmark also follows **I7**'s advice, which turned out to matter: a first version measured the two
+settings one after the other with a fixed pass count and reported `keep_original` as **21 % faster** —
+physically impossible. Alternating the settings round by round and sizing each measurement window by
+time (≥300 ms) instead of by pass count brought the POS-aware paths to "within noise", where they
+belong. The report now prints its own noise floor so a difference smaller than it cannot be misread as
+a result.
 
-**Scaling the silver set (done).** UDPipe first segfaulted (SIGSEGV in `libudpipe_java.dylib`'s
-`pipeline::process`) after ~70k of 300k sentences. Re-tagging the full corpus **in 5,000-line chunks,
-each in a separate JVM** sidestepped the crash entirely (0 crashes, 310k sentences, **5.0M tokens**).
-Retraining on 5.18M tokens raised aggregate gender **86.2% → 87.89% — now matching/slightly above the
-UDPipe teacher (87.25%)**. So distillation scales and a MaxEnt student can match the neural teacher's
-gender on this test. The 35-sentence real-world test stayed ~83–86% (29–30/35) — too small to resolve
-the +1.7pt aggregate gain (individual homonyms like `hrady` flip between model versions); a larger
-gold-annotated homonym test would be needed to measure scaling on that class specifically. Bigger raw
-corpora (Leipzig `slk-sk_web_2015_1M`, FineWeb2) are the next lever if ever pursued.
+### ✅ Shipped robustness fixes
+- **Case-only fallback guard** — `LemmatizerME` lower-cases every token before its edit script, so a
+  token it cannot lemmatise came back as the lower-cased original (`SKU-4711 → sku-4711`, `NATO →
+  nato`), destroying identifiers and unknown proper nouns. The filter now keeps the original token when
+  the model only folded case. Inert behind a `lowercase` filter, and it still allows a legitimate
+  `haus → Haus`.
+- **`model_fallback: false`** — turns the MaxEnt fallback off for `pos_dictionary_lemmatizer`: a
+  dictionary miss leaves the token unchanged (pure dictionary, predictable output, no
+  `lemmatizer_model` needed).
+- **`pos_format` validation** — an unrecognised value used to fall through to `penn` silently, which
+  degrades a native-tagged dictionary to 100 % model fallback. It now fails fast at index creation.
+- **Dictionary load logging + empty-file fail-fast** — `FstBuilder` logs entry count, streamed vs
+  buffered, elapsed time and FST size, and rejects a file that parsed zero entries (Lucene returns a
+  `null` FST for empty input, which used to surface as an NPE on the first token analysed).
+- **Elasticsearch analysis test** — mirrors the OpenSearch one, so the two platform wrappers are
+  covered symmetrically as `AGENTS.md` requires.
 
-Reproduction assets were in `/tmp` this session (`UdpipeTag`, `EvalGender`, `RealEval`, the 35-sentence
-`realtest.tsv`); UD-SNK via `fetch-models.sh sk-ud`, MTE-1984 at CLARIN handle 11356/1043, Leipzig raw
-corpora at downloads.wortschatz-leipzig.de, teacher = `experiments/udpipe` (slovak-snk).
+## Reference numbers (OS 3.7.0, `_analyze`, 4490 tokens, best-of-5)
 
-**Node deployment attempt — BLOCKED by a model-resolution bug (needs investigation).** We then tried
-deploying it for real on OpenSearch: built a gender-keyed FST dict (form + `UPOS.gender` → lemma, the
-homonyms now split: `hrady`→`NOUN.Masc:hrad`/`NOUN.Fem:hrada`), trained a **lowercased** gender model
-(so the `lowercase`-composed pipeline matches), and added a fallback-tag normaliser to
-`OpenNlpPosLemmatizerFilter` (maps `NOUN.Masc`→`NN` before the Penn-trained lemmatizer model — committed,
-correct, and needed). The clever part: no new filter — the generic `pos_dictionary_lemmatizer` takes
-any `pos_model` + `dictionary`. **Offline it works perfectly** (`FstPosDictionaryLemmatizer` + the
-gender model resolves `hrady→hrad/hrada`, `jablká→jablko`, `pijú→piť`, all correct). **Through the
-plugin it does not** — and the root cause turned out to be *intended Lucene behaviour, not a bug*:
-Lucene's `org.apache.lucene.analysis.opennlp.tools.NLPPOSTaggerOp` (used by `OpenNLPPOSFilter`, which
-`OpenNlpLemmatizer.apply` chains) constructs its tagger as **`new POSTaggerME(model, POSTagFormat.PENN)`**
-— it hard-codes Penn-format normalisation. So our `UPOS.gender` tags are coerced to Penn on the way out:
-`ADV→RB`, `VERB→VB`, and `NOUN.Fem`/`NOUN.Masc`→`?` (no Penn equivalent for a gender-augmented tag) →
-the gender dict misses on `?` and the word falls through. Verified directly: same model, same words,
-`new POSTaggerME(m).tag()` → `ADV VERB NOUN.Fem NOUN.Masc` ✓ but `new NLPPOSTaggerOp(m).getPOSTags()`
-→ `RB VB ? ?`; `POSTaggerME(m, POSTagFormat.UD|CUSTOM)` keeps the gender tags, `POSTagFormat.PENN` mangles
-them. (Thanks to the reviewer who pushed back on the "bug" framing — it's the documented `POSTagFormat`
-API.)
-
-**Fixed and shipped as the `pos_format` setting.** `OpenNlpLemmatizer` now has a
-`NativeFormatPosTaggerOp` (a `NLPPOSTaggerOp` subclass that tags with `POSTagFormat.CUSTOM`), selected by
-`pos_format: native` on `pos_dictionary_lemmatizer` (default `penn` keeps the old behaviour). With it the
-gender pipeline **works end-to-end on the node**: `jablká→jablko`, `pijú→piť`, `lese→les`, `vyrába→vyrábať`,
-`repy→repa`, `diel→diel` (Penn path gives the wrong `dielo`). Residual errors (`hrady→hrada`, `zámky→zámka`)
-are the model's genuine ~13% gender mistakes (the 87% ceiling), not the format issue. Note: the official
-`sk-pos.bin` is itself a UD-native model (emits `NOUN`/`VERB`); the existing Penn dict relies on the default
-`penn` normalisation, which is why the setting defaults to `penn` and gender opts into `native`. The
-`toPennTag` fallback normaliser pairs with this so out-of-dict words still lemmatise. Distributing the gender
-model/dict as artifacts (a build script + a fetch target) is the remaining productionisation step — see
-`experiments/gender/`.
-
-## Reference numbers (this session, OS 3.7.0)
-
-| filter | tok/s (best-of-5, 4490 tok, `_analyze`) | heap (926k dict, microbench) |
+| filter | tok/s | heap (926k dict) |
 |---|---|---|
 | jLemmaGen | 131,830 | — |
-| `dictionary_lemmatizer` | 17,097 | ~106 MB (CharArrayMap) → **~2 MB (FST, see below)** |
+| `dictionary_lemmatizer` | 17,097 | **~2 MB (FST)** |
 | `pos_dictionary_lemmatizer` | 6,006 | **~1.5 MB (FST)** |
 | `opennlp_lemmatizer` | 5,777 | model only |
 
 `pos_dictionary_lemmatizer ≈ opennlp_lemmatizer` (POS-tagger-bound; the FST dictionary adds no cost).
 FST vs a plain hash map for the same dictionary: **1.5 MB vs 268 MB** (178×), 0/925744 lookup mismatch.
+The throughput column predates the FST switch and is `_analyze`-bound — see **I5**/**I7** before
+quoting it.
 
 ## Memory & load optimisations (M1 / M2 / FST flat dictionary)
 
 - **M1 — node-wide artifact cache** (`ModelCache`): a token-filter factory is built per *(index, filter)*,
   so the same model/dictionary files were parsed into a fresh copy each time. They are now cached by
   path+size+mtime and shared across every index on the node. Node-measured: per extra index dropped from
-  ~7.4 MB (`pos_dictionary` copy) / ~94 MB (`dictionary` copy) to ~0.4 MB.
+  ~7.4 MB (`pos_dictionary` copy) / ~94 MB (`dictionary` copy) to ~0.4 MB. Never evicts — see **I9**.
 - **M2 — streaming FST load**: an already-sorted dictionary streams straight into the FST with no in-heap
   entry buffer (peak build heap 238 MB → 85 MB on the 926k dict); falls back to buffer+sort otherwise.
   `fetch-models.sh` now emits the `-mte-pos` dictionary in `LC_ALL=C` (FST key) order. Both dictionaries
