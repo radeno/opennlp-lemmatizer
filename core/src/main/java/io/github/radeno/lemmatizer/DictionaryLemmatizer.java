@@ -2,6 +2,7 @@ package io.github.radeno.lemmatizer;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -63,24 +64,16 @@ public final class DictionaryLemmatizer {
      * @throws UncheckedIOException     if the dictionary cannot be read
      */
     public static DictionaryLemmatizer fromConfig(String filterName, Path configDir, String dictionaryFile) {
-        return fromConfig(filterName, configDir, dictionaryFile, false);
+        return fromConfig(filterName, configDir, dictionaryFile, LemmatizerOptions.defaults());
     }
 
     /**
-     * As {@link #fromConfig(String, Path, String)}, additionally emitting the original token beside each
-     * lemma (see {@link OpenNlpLemmatizer#KEEP_ORIGINAL_SETTING}).
+     * As {@link #fromConfig(String, Path, String)} with explicit {@link LemmatizerOptions}. Being
+     * POS-free, this filter reads only {@link LemmatizerOptions#keepOriginal()} and
+     * {@link LemmatizerOptions#unicodeFolding()}.
      */
     public static DictionaryLemmatizer fromConfig(String filterName, Path configDir, String dictionaryFile,
-                                                  boolean keepOriginal) {
-        return fromConfig(filterName, configDir, dictionaryFile, keepOriginal, false);
-    }
-
-    /**
-     * As {@link #fromConfig(String, Path, String, boolean)}, additionally matching tokens that differ from
-     * a dictionary form only by folding (see {@link OpenNlpLemmatizer#UNICODE_FOLDING_SETTING}).
-     */
-    public static DictionaryLemmatizer fromConfig(String filterName, Path configDir, String dictionaryFile,
-                                                  boolean keepOriginal, boolean unicodeFolding) {
+                                                  LemmatizerOptions options) {
         if (dictionaryFile == null || dictionaryFile.isBlank()) {
             throw new IllegalArgumentException(
                 "[" + filterName + "] token filter requires a '" + DICTIONARY_SETTING + "' setting");
@@ -88,24 +81,19 @@ public final class DictionaryLemmatizer {
         Path path = configDir.resolve(OpenNlpLemmatizer.MODELS_DIRECTORY).resolve(dictionaryFile);
         // The folding flag joins the cache key: it changes which automata get built, so a folding and a
         // non-folding index reading the same file need separate entries rather than one racing the other.
-        var cached = ModelCache.loadShared(CACHE, path, unicodeFolding ? "folded" : "",
-            p -> load(p, unicodeFolding));
-        return new DictionaryLemmatizer(cached, keepOriginal);
+        var cached = ModelCache.loadShared(CACHE, path, options.dictionaryVariant(),
+            p -> load(p, options.unicodeFolding()));
+        return new DictionaryLemmatizer(cached, options.keepOriginal());
     }
 
     /** Load a flat {@code form<TAB>lemma} dictionary file (UTF-8, one pair per line) into an FST. */
     public static DictionaryLemmatizer fromFile(Path path) {
-        return fromFile(path, false);
+        return fromFile(path, LemmatizerOptions.defaults());
     }
 
-    /** As {@link #fromFile(Path)}, additionally emitting the original token beside each lemma. */
-    public static DictionaryLemmatizer fromFile(Path path, boolean keepOriginal) {
-        return fromFile(path, keepOriginal, false);
-    }
-
-    /** As {@link #fromFile(Path, boolean)}, additionally building the folded companion automaton. */
-    public static DictionaryLemmatizer fromFile(Path path, boolean keepOriginal, boolean unicodeFolding) {
-        return new DictionaryLemmatizer(load(path, unicodeFolding), keepOriginal);
+    /** As {@link #fromFile(Path)} with explicit {@link LemmatizerOptions}. */
+    public static DictionaryLemmatizer fromFile(Path path, LemmatizerOptions options) {
+        return new DictionaryLemmatizer(load(path, options.unicodeFolding()), options.keepOriginal());
     }
 
     private static Dictionary load(Path path, boolean unicodeFolding) {
@@ -146,16 +134,16 @@ public final class DictionaryLemmatizer {
      * folded shape is skipped: that key is byte-identical to the exact one, which the primary automaton
      * holds and the filter tries first.
      */
-    private static java.util.List<FstBuilder.Entry> parseFolded(String raw) {
+    private static List<FstBuilder.Entry> parseFolded(String raw) {
         FstBuilder.Entry exact = parse(raw);
         if (exact == null) {
-            return java.util.List.of();
+            return List.of();
         }
         var form = new String(exact.key(), StandardCharsets.UTF_8);
         var folded = UnicodeFolder.fold(form);
         return folded.equals(form)
-            ? java.util.List.of()
-            : java.util.List.of(
+            ? List.of()
+            : List.of(
                 new FstBuilder.Entry(folded.getBytes(StandardCharsets.UTF_8), exact.output()));
     }
 

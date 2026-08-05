@@ -116,7 +116,7 @@ public class PosDictionaryLemmatizerGoldenTest {
     @Test
     public void pureDictionaryModeNeverInventsALemma() throws Exception {
         assumeSlovakModelsAndDictionary();
-        OpenNlpLemmatizer lemmatizer = OpenNlpLemmatizer.fromModels(POS, null, DICT, false, false);
+        OpenNlpLemmatizer lemmatizer = OpenNlpLemmatizer.fromModels(POS, null, DICT, LemmatizerOptions.defaults().modelFallback(false));
         assertEquals("objednávka sku-4711 byť odoslaná na user@example.com",
             analyze(lemmatizer, "Objednávka SKU-4711 bola odoslaná na user@example.com", true));
     }

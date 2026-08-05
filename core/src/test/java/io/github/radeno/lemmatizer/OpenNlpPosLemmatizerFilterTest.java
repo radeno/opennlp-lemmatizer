@@ -105,7 +105,7 @@ public class OpenNlpPosLemmatizerFilterTest {
     @Test
     public void pureDictionaryModeLeavesUncoveredTokensUntouched() throws Exception {
         assumeSlovakModels();
-        OpenNlpLemmatizer lemmatizer = OpenNlpLemmatizer.fromModels(POS, LEMMAS, dictionary(), false, false);
+        OpenNlpLemmatizer lemmatizer = OpenNlpLemmatizer.fromModels(POS, LEMMAS, dictionary(), LemmatizerOptions.defaults().modelFallback(false));
         // "Hostia"/"prišli" would be guessed by the model; only the dictionary entry is rewritten
         assertEquals(List.of("Hostia", "prišli", "Bratislava"),
             analyze(lemmatizer, "Hostia prišli bratislave", false));
@@ -115,7 +115,7 @@ public class OpenNlpPosLemmatizerFilterTest {
     @Test
     public void pureDictionaryModeNeedsNoLemmatizerModel() throws Exception {
         assumeSlovakModels();
-        OpenNlpLemmatizer lemmatizer = OpenNlpLemmatizer.fromModels(POS, null, dictionary(), false, false);
+        OpenNlpLemmatizer lemmatizer = OpenNlpLemmatizer.fromModels(POS, null, dictionary(), LemmatizerOptions.defaults().modelFallback(false));
         assertEquals(List.of("prišli", "Bratislava"), analyze(lemmatizer, "prišli bratislave", false));
     }
 
@@ -130,6 +130,6 @@ public class OpenNlpPosLemmatizerFilterTest {
         assertEquals(List.of("NATO", "SKU-4711", "Praha"),
             analyze(OpenNlpLemmatizer.fromModels(CS_POS, CS_LEMMAS, dict), "NATO SKU-4711 praze", false));
         assertEquals(List.of("Děkuji", "Praha"),
-            analyze(OpenNlpLemmatizer.fromModels(CS_POS, null, dict, false, false), "Děkuji praze", false));
+            analyze(OpenNlpLemmatizer.fromModels(CS_POS, null, dict, LemmatizerOptions.defaults().modelFallback(false)), "Děkuji praze", false));
     }
 }

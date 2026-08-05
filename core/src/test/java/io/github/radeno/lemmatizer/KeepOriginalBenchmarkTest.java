@@ -66,17 +66,17 @@ public class KeepOriginalBenchmarkTest {
             fields.size(), countTokens(fields), ARTICLES.getFileName());
 
         var posDictOff = OpenNlpLemmatizer.fromModels(POS, LEMMAS, POS_DICT);
-        var posDictOn = OpenNlpLemmatizer.fromModels(POS, LEMMAS, POS_DICT, false, true, true);
+        var posDictOn = OpenNlpLemmatizer.fromModels(POS, LEMMAS, POS_DICT, LemmatizerOptions.defaults().keepOriginal(true));
         measure("pos_dictionary_lemmatizer", fields,
             in -> posDictOff.apply(new LowerCaseFilter(in)), in -> posDictOn.apply(new LowerCaseFilter(in)));
 
         var flatOff = DictionaryLemmatizer.fromFile(FLAT_DICT);
-        var flatOn = DictionaryLemmatizer.fromFile(FLAT_DICT, true);
+        var flatOn = DictionaryLemmatizer.fromFile(FLAT_DICT, LemmatizerOptions.defaults().keepOriginal(true));
         measure("dictionary_lemmatizer", fields,
             in -> flatOff.apply(new LowerCaseFilter(in)), in -> flatOn.apply(new LowerCaseFilter(in)));
 
         var modelOff = OpenNlpLemmatizer.fromModels(POS, LEMMAS);
-        var modelOn = OpenNlpLemmatizer.fromModels(POS, LEMMAS, null, false, true, true);
+        var modelOn = OpenNlpLemmatizer.fromModels(POS, LEMMAS, null, LemmatizerOptions.defaults().keepOriginal(true));
         measure("opennlp_lemmatizer", fields,
             in -> modelOff.apply(new LowerCaseFilter(in)), in -> modelOn.apply(new LowerCaseFilter(in)));
 
@@ -99,7 +99,7 @@ public class KeepOriginalBenchmarkTest {
         cases.put("angínu", "S5: out-of-dictionary gender homonym");
         cases.put("plese", "S5: ples(dance) vs pleso(lake) — domain-dependent");
 
-        var lemmatizer = OpenNlpLemmatizer.fromModels(POS, LEMMAS, POS_DICT, false, true, true);
+        var lemmatizer = OpenNlpLemmatizer.fromModels(POS, LEMMAS, POS_DICT, LemmatizerOptions.defaults().keepOriginal(true));
         System.out.println("documented failure cases (recommended lowercase chain, keep_original: true)");
         System.out.printf("  %-10s %-12s %-9s %s%n", "written", "lemma", "findable", "why it is a known case");
         for (var entry : cases.entrySet()) {

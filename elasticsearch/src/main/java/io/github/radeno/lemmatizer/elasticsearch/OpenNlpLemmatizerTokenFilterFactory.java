@@ -1,5 +1,6 @@
 package io.github.radeno.lemmatizer.elasticsearch;
 
+import io.github.radeno.lemmatizer.LemmatizerOptions;
 import io.github.radeno.lemmatizer.OpenNlpLemmatizer;
 
 import org.apache.lucene.analysis.TokenStream;
@@ -26,7 +27,7 @@ public class OpenNlpLemmatizerTokenFilterFactory extends AbstractTokenFilterFact
             env.configDir(),
             settings.get(OpenNlpLemmatizer.POS_MODEL_SETTING),
             settings.get(OpenNlpLemmatizer.LEMMATIZER_MODEL_SETTING),
-            settings.getAsBoolean(OpenNlpLemmatizer.KEEP_ORIGINAL_SETTING, false));
+            LemmatizerOptions.from(false, settings::getAsBoolean));
     }
 
     @Override

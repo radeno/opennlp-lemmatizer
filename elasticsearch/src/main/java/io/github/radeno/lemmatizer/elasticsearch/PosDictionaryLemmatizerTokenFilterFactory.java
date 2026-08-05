@@ -1,6 +1,7 @@
 package io.github.radeno.lemmatizer.elasticsearch;
 
 import io.github.radeno.lemmatizer.DictionaryLemmatizer;
+import io.github.radeno.lemmatizer.LemmatizerOptions;
 import io.github.radeno.lemmatizer.OpenNlpLemmatizer;
 
 import org.apache.lucene.analysis.TokenStream;
@@ -34,10 +35,9 @@ public class PosDictionaryLemmatizerTokenFilterFactory extends AbstractTokenFilt
             settings.get(OpenNlpLemmatizer.POS_MODEL_SETTING),
             settings.get(OpenNlpLemmatizer.LEMMATIZER_MODEL_SETTING),
             dictionary,
-            OpenNlpLemmatizer.isNativePosFormat(name, settings.get(OpenNlpLemmatizer.POS_FORMAT_SETTING)),
-            settings.getAsBoolean(OpenNlpLemmatizer.MODEL_FALLBACK_SETTING, true),
-            settings.getAsBoolean(OpenNlpLemmatizer.KEEP_ORIGINAL_SETTING, false),
-            settings.getAsBoolean(OpenNlpLemmatizer.UNICODE_FOLDING_SETTING, false));
+            LemmatizerOptions.from(
+                OpenNlpLemmatizer.isNativePosFormat(name, settings.get(OpenNlpLemmatizer.POS_FORMAT_SETTING)),
+                settings::getAsBoolean));
     }
 
     @Override

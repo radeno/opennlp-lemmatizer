@@ -42,7 +42,7 @@ public class KeepOriginalTest {
 
     @Test
     public void flatDictionaryKeepsTheSurfaceFormBesideTheLemma() throws Exception {
-        var lemmatizer = DictionaryLemmatizer.fromFile(flatDictionary(), true);
+        var lemmatizer = DictionaryLemmatizer.fromFile(flatDictionary(), LemmatizerOptions.defaults().keepOriginal(true));
         // "v" is not in the dictionary and "byť"/"les" are rewrites: only the rewrites are doubled
         assertEquals(List.of("je(+1)", "byť(+0)", "v(+1)", "lese(+1)", "les(+0)"),
             analyze(lemmatizer.apply(whitespace("je v lese"))));
@@ -58,7 +58,7 @@ public class KeepOriginalTest {
     /** The stacked original must carry the same offsets as its lemma, or highlighting breaks. */
     @Test
     public void theStackedOriginalKeepsTheOffsetsOfItsLemma() throws Exception {
-        var lemmatizer = DictionaryLemmatizer.fromFile(flatDictionary(), true);
+        var lemmatizer = DictionaryLemmatizer.fromFile(flatDictionary(), LemmatizerOptions.defaults().keepOriginal(true));
         assertEquals(List.of("je[0,2]", "byť[0,2]", "v[3,4]", "lese[5,9]", "les[5,9]"),
             analyzeOffsets(lemmatizer.apply(whitespace("je v lese"))));
     }
@@ -76,7 +76,8 @@ public class KeepOriginalTest {
     public void posDictionaryKeepsTheSurfaceFormBesideTheLemma() throws Exception {
         assumeSlovakModels();
         // model_fallback off, so only the dictionary hit is rewritten and the assertion stays crisp
-        var lemmatizer = OpenNlpLemmatizer.fromModels(SK_POS, null, posDictionary(), false, false, true);
+        var lemmatizer = OpenNlpLemmatizer.fromModels(SK_POS, null, posDictionary(),
+            LemmatizerOptions.defaults().modelFallback(false).keepOriginal(true));
         assertEquals(List.of("v(+1)", "bratislave(+1)", "Bratislava(+0)"),
             analyze(lemmatizer.apply(whitespace("v bratislave"))));
     }
@@ -84,7 +85,7 @@ public class KeepOriginalTest {
     @Test
     public void posDictionaryIsUnchangedWhenTheSettingIsOff() throws Exception {
         assumeSlovakModels();
-        var lemmatizer = OpenNlpLemmatizer.fromModels(SK_POS, null, posDictionary(), false, false);
+        var lemmatizer = OpenNlpLemmatizer.fromModels(SK_POS, null, posDictionary(), LemmatizerOptions.defaults().modelFallback(false));
         assertEquals(List.of("v(+1)", "Bratislava(+1)"),
             analyze(lemmatizer.apply(whitespace("v bratislave"))));
     }
@@ -94,7 +95,7 @@ public class KeepOriginalTest {
     public void posTaggingIsUnaffectedByTheRepeat() throws Exception {
         assumeSlovakModels();
         var plain = OpenNlpLemmatizer.fromModels(SK_POS, SK_LEMMAS, posDictionary());
-        var kept = OpenNlpLemmatizer.fromModels(SK_POS, SK_LEMMAS, posDictionary(), false, true, true);
+        var kept = OpenNlpLemmatizer.fromModels(SK_POS, SK_LEMMAS, posDictionary(), LemmatizerOptions.defaults().keepOriginal(true));
         String text = "Hostia prišli do Bratislavy";
 
         List<String> lemmasOnly = new ArrayList<>();
@@ -121,7 +122,7 @@ public class KeepOriginalTest {
     @Test
     public void theModelOnlyFilterKeepsTheSurfaceFormBesideTheLemma() throws Exception {
         assumeSlovakModels();
-        var lemmatizer = OpenNlpLemmatizer.fromModels(SK_POS, SK_LEMMAS, null, false, true, true);
+        var lemmatizer = OpenNlpLemmatizer.fromModels(SK_POS, SK_LEMMAS, null, LemmatizerOptions.defaults().keepOriginal(true));
         // "že"/"si" are their own lemma -> emitted once; the two rewrites are doubled
         assertEquals(List.of("Ďakujem(+1)", "ďakovať(+0)", "že(+1)", "si(+1)", "prišiel(+1)", "prísť(+0)"),
             analyze(lemmatizer.apply(whitespace("Ďakujem že si prišiel"))));

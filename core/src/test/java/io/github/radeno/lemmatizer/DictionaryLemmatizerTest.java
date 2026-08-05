@@ -39,7 +39,7 @@ public class DictionaryLemmatizerTest {
         Files.writeString(models.resolve("d.txt"), "auto\tauto\nje\tbyť\n");
 
         DictionaryLemmatizer a = DictionaryLemmatizer.fromConfig("f1", config, "d.txt");
-        DictionaryLemmatizer b = DictionaryLemmatizer.fromConfig("f2", config, "d.txt", true);
+        DictionaryLemmatizer b = DictionaryLemmatizer.fromConfig("f2", config, "d.txt", LemmatizerOptions.defaults().keepOriginal(true));
         assertSame("two filters on the same dictionary file share one loaded FST",
             a.dictionary(), b.dictionary());
     }

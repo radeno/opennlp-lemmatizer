@@ -93,7 +93,7 @@ public class UnicodeFoldingTest {
     @Test
     public void flatDictionaryMatchesAFoldedToken() throws Exception {
         Path dict = dictionary("ružomberku\tRužomberok\nkošice\tKošice\n");
-        var folding = DictionaryLemmatizer.fromFile(dict, false, true);
+        var folding = DictionaryLemmatizer.fromFile(dict, LemmatizerOptions.defaults().unicodeFolding(true));
         assertEquals(List.of("Ružomberok", "Košice"), analyze(folding.apply(whitespace("ruzomberku kosice"))));
     }
 
@@ -109,7 +109,7 @@ public class UnicodeFoldingTest {
     @Test
     public void anExactHitOutranksAFoldedOne() throws Exception {
         Path dict = dictionary("sud\tsud\nsúd\tsúd\n");
-        var folding = DictionaryLemmatizer.fromFile(dict, false, true);
+        var folding = DictionaryLemmatizer.fromFile(dict, LemmatizerOptions.defaults().unicodeFolding(true));
         assertEquals(List.of("sud", "súd"), analyze(folding.apply(whitespace("sud súd"))));
     }
 
@@ -117,7 +117,7 @@ public class UnicodeFoldingTest {
     @Test
     public void aDictionaryWithNothingToFoldStillLoads() throws Exception {
         Path dict = dictionary("dogs\tdog\ncats\tcat\n");
-        var folding = DictionaryLemmatizer.fromFile(dict, false, true);
+        var folding = DictionaryLemmatizer.fromFile(dict, LemmatizerOptions.defaults().unicodeFolding(true));
         assertEquals(0, folding.foldedSize());
         assertEquals(List.of("dog", "cat"), analyze(folding.apply(whitespace("dogs cats"))));
     }
@@ -127,7 +127,7 @@ public class UnicodeFoldingTest {
     @Test
     public void greekAccentsFold() throws Exception {
         Path dict = dictionary("αθήνα\tΑθήνα\nκαλημέρα\tκαλημέρα\n");
-        var folding = DictionaryLemmatizer.fromFile(dict, false, true);
+        var folding = DictionaryLemmatizer.fromFile(dict, LemmatizerOptions.defaults().unicodeFolding(true));
         assertTrue("a Greek dictionary must produce folded keys", folding.foldedSize() > 0);
         assertEquals(List.of("Αθήνα", "καλημέρα"), analyze(folding.apply(whitespace("αθηνα καλημερα"))));
     }
@@ -135,7 +135,7 @@ public class UnicodeFoldingTest {
     @Test
     public void cyrillicYoFoldsToYe() throws Exception {
         Path dict = dictionary("пётр\tПётр\nёлка\tёлка\n");
-        var folding = DictionaryLemmatizer.fromFile(dict, false, true);
+        var folding = DictionaryLemmatizer.fromFile(dict, LemmatizerOptions.defaults().unicodeFolding(true));
         assertEquals(List.of("Пётр", "ёлка"), analyze(folding.apply(whitespace("петр елка"))));
     }
 
@@ -153,7 +153,7 @@ public class UnicodeFoldingTest {
     @Test
     public void slovakCitiesResolveWithoutTheirDiacritics() throws Exception {
         assumeSlovakModels();
-        var folding = OpenNlpLemmatizer.fromModels(SK_POS, SK_LEMMAS, SK_DICT, false, true, false, true);
+        var folding = OpenNlpLemmatizer.fromModels(SK_POS, SK_LEMMAS, SK_DICT, LemmatizerOptions.defaults().unicodeFolding(true));
         assertEquals("bývať v Ružomberok už dlho", lemmatize(folding, "Byvam v Ruzomberku uz dlho"));
         assertEquals("cestovať do Košice na víkend", lemmatize(folding, "Cestujem do Kosic na vikend"));
         assertEquals("byť byť v Trenčín minulý rok", lemmatize(folding, "Bol som v Trencine minuly rok"));
@@ -169,7 +169,7 @@ public class UnicodeFoldingTest {
     public void correctlySpelledTextIsUnaffected() throws Exception {
         assumeSlovakModels();
         var plain = OpenNlpLemmatizer.fromModels(SK_POS, SK_LEMMAS, SK_DICT);
-        var folding = OpenNlpLemmatizer.fromModels(SK_POS, SK_LEMMAS, SK_DICT, false, true, false, true);
+        var folding = OpenNlpLemmatizer.fromModels(SK_POS, SK_LEMMAS, SK_DICT, LemmatizerOptions.defaults().unicodeFolding(true));
         for (String text : new String[] {
             "Hostia prišli do Bratislavy a navštívili starý hrad",
             "Bývam v Ružomberku už dlho",
@@ -189,7 +189,7 @@ public class UnicodeFoldingTest {
     @Test
     public void aFoldedKeyGoesToTheReadingMostOfItsClassSupports() throws Exception {
         assumeSlovakModels();
-        var folding = OpenNlpLemmatizer.fromModels(SK_POS, SK_LEMMAS, SK_DICT, false, true, false, true);
+        var folding = OpenNlpLemmatizer.fromModels(SK_POS, SK_LEMMAS, SK_DICT, LemmatizerOptions.defaults().unicodeFolding(true));
         assertEquals("už", lemmatize(folding, "uz"));
     }
 
@@ -202,14 +202,14 @@ public class UnicodeFoldingTest {
         Path installed = configDir.resolve(OpenNlpLemmatizer.MODELS_DIRECTORY).resolve("d.txt");
         Files.copy(dict, installed);
 
-        var plain = DictionaryLemmatizer.fromConfig("t", configDir, "d.txt", false, false);
-        var folding = DictionaryLemmatizer.fromConfig("t", configDir, "d.txt", false, true);
+        var plain = DictionaryLemmatizer.fromConfig("t", configDir, "d.txt", LemmatizerOptions.defaults());
+        var folding = DictionaryLemmatizer.fromConfig("t", configDir, "d.txt", LemmatizerOptions.defaults().unicodeFolding(true));
         assertEquals(0, plain.foldedSize());
         assertTrue(folding.foldedSize() > 0);
         assertNotSame(plain.dictionary(), folding.dictionary());
 
         // ...and each variant is still shared with its own kind
         assertEquals(folding.dictionary(),
-            DictionaryLemmatizer.fromConfig("t", configDir, "d.txt", false, true).dictionary());
+            DictionaryLemmatizer.fromConfig("t", configDir, "d.txt", LemmatizerOptions.defaults().unicodeFolding(true)).dictionary());
     }
 }

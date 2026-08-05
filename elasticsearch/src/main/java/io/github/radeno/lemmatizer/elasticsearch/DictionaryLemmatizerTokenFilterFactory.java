@@ -1,6 +1,7 @@
 package io.github.radeno.lemmatizer.elasticsearch;
 
 import io.github.radeno.lemmatizer.DictionaryLemmatizer;
+import io.github.radeno.lemmatizer.LemmatizerOptions;
 import io.github.radeno.lemmatizer.OpenNlpLemmatizer;
 
 import org.apache.lucene.analysis.TokenStream;
@@ -28,8 +29,7 @@ public class DictionaryLemmatizerTokenFilterFactory extends AbstractTokenFilterF
             name,
             env.configDir(),
             settings.get(DictionaryLemmatizer.DICTIONARY_SETTING),
-            settings.getAsBoolean(OpenNlpLemmatizer.KEEP_ORIGINAL_SETTING, false),
-            settings.getAsBoolean(OpenNlpLemmatizer.UNICODE_FOLDING_SETTING, false));
+            LemmatizerOptions.from(false, settings::getAsBoolean));
     }
 
     @Override

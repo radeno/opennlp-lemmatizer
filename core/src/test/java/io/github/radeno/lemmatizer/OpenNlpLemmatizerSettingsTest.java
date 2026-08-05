@@ -67,19 +67,19 @@ public class OpenNlpLemmatizerSettingsTest {
         assertThrows(IllegalArgumentException.class,
             () -> OpenNlpLemmatizer.fromConfig("f", CONFIG, "pos.bin", null));
         assertThrows(IllegalArgumentException.class,
-            () -> OpenNlpLemmatizer.fromConfig("f", CONFIG, "pos.bin", null, "dict.txt", false, true));
+            () -> OpenNlpLemmatizer.fromConfig("f", CONFIG, "pos.bin", null, "dict.txt", LemmatizerOptions.defaults()));
         // no dictionary to fall back on -> the model stays required even with model_fallback: false
         assertThrows(IllegalArgumentException.class,
-            () -> OpenNlpLemmatizer.fromConfig("f", CONFIG, "pos.bin", null, null, false, false));
+            () -> OpenNlpLemmatizer.fromConfig("f", CONFIG, "pos.bin", null, null, LemmatizerOptions.defaults().modelFallback(false)));
     }
 
     @Test
     public void aLemmatizerModelIsRequiredWhenThereIsNoDictionary() {
         Path pos = Paths.get("pos.bin");
         assertThrows(IllegalArgumentException.class,
-            () -> OpenNlpLemmatizer.fromModels(pos, null, null, false, true));
+            () -> OpenNlpLemmatizer.fromModels(pos, null, null, LemmatizerOptions.defaults()));
         assertThrows(IllegalArgumentException.class,
-            () -> OpenNlpLemmatizer.fromModels(pos, pos, null, false, false));
+            () -> OpenNlpLemmatizer.fromModels(pos, pos, null, LemmatizerOptions.defaults().modelFallback(false)));
     }
 
     @Test
