@@ -49,6 +49,15 @@ final class FstBuilder {
         Entry parse(String rawLine);
     }
 
+    /**
+     * Splits one raw line into any number of {@link Entry entries} — used by {@link #buildFolded}, where a
+     * single dictionary row contributes both a POS-specific folded key and a POS-relaxed one.
+     */
+    @FunctionalInterface
+    interface MultiLineParser {
+        List<Entry> parse(String rawLine);
+    }
+
     /** A compiled FST and the number of entries added. */
     record Result(FST<BytesRef> fst, int size) {
     }
@@ -100,6 +109,30 @@ final class FstBuilder {
     }
 
     /**
+     * Build the folded companion automaton for {@code unicode_folding} — same file, but each line parsed
+     * into its {@linkplain UnicodeFolder folded} key. Always buffered: folding is not order-preserving, so
+     * a file sorted on its original keys is never sorted on the folded ones.
+     *
+     * <p>{@code parser} is expected to skip lines whose form already equals its folded shape — those keys
+     * are identical to the exact ones, which the primary automaton holds and the lookup consults first.
+     * A dictionary where nothing folds (say a plain-ASCII lexicon) legitimately yields no entries at all,
+     * so unlike {@link #build} this returns an empty {@link Result} rather than failing; the caller then
+     * simply has no folded automaton to consult.
+     */
+    static Result buildFolded(Path path, MultiLineParser parser) {
+        long start = System.nanoTime();
+        Result result = foldedBuild(path, parser);
+        long ms = (System.nanoTime() - start) / 1_000_000;
+        LOG.log(System.Logger.Level.INFO,
+            () -> result.size() == 0
+                ? String.format("No foldable forms in %s; '%s' has no effect on this dictionary",
+                    path, OpenNlpLemmatizer.UNICODE_FOLDING_SETTING)
+                : String.format("Loaded %d folded keys from %s in %d ms (FST %.1f MB)",
+                    result.size(), path, ms, result.fst().ramBytesUsed() / (1024.0 * 1024.0)));
+        return result;
+    }
+
+    /**
      * Stream an already-sorted file into the FST without buffering entries; only the previous key is kept
      * in memory. Throws {@link UnsortedException} on the first out-of-order key so {@link #build} can fall
      * back to {@link #bufferedBuild}.
@@ -135,6 +168,76 @@ final class FstBuilder {
         } catch (IOException e) {
             throw new UncheckedIOException("Cannot build FST from " + path, e);
         }
+    }
+
+    /**
+     * Buffer, sort, and compile the folded entries, resolving a key claimed by several source forms to the
+     * lemma <b>most of them</b> agree on rather than to whichever happened to come first.
+     *
+     * <p>The distinction matters at the POS-relaxed key. In the exact dictionary a {@code *} row is an
+     * assertion — this form has one lemma whatever its part of speech. Its folded counterpart asserts
+     * nothing of the kind: it is merely where every form sharing a folded shape lands, and those forms are
+     * different words. Counting them turns the key into what it should be, the reading the folded class as
+     * a whole supports. On the Slovak lexicon that is worth about a point of accuracy, and it is the
+     * difference between {@code uz -> už} and {@code uz -> úžiť} (one {@code úž} row outvoted by two
+     * {@code už} ones).
+     *
+     * <p>The count needs no map: equal keys are adjacent once sorted, so each run is tallied in place.
+     * Ties keep the first entry in file order, the sort being stable.
+     */
+    private static Result foldedBuild(Path path, MultiLineParser parser) {
+        List<Entry> entries = new ArrayList<>(1 << 20);
+        try (var lines = Files.lines(path, StandardCharsets.UTF_8)) {
+            lines.forEach(raw -> entries.addAll(parser.parse(raw)));
+        } catch (IOException e) {
+            throw new UncheckedIOException("Cannot load dictionary from " + path, e);
+        }
+        entries.sort((a, b) -> Arrays.compareUnsigned(a.key(), b.key()));
+
+        var scratch = new IntsRefBuilder();
+        int added = 0;
+        try {
+            var compiler = newCompiler();
+            for (int i = 0; i < entries.size(); ) {
+                int end = i + 1;
+                while (end < entries.size() && Arrays.equals(entries.get(i).key(), entries.get(end).key())) {
+                    end++;
+                }
+                byte[] winner = majorityOutput(entries, i, end);
+                compiler.add(Util.toIntsRef(new BytesRef(entries.get(i).key()), scratch), new BytesRef(winner));
+                added++;
+                i = end;
+            }
+            return compile(compiler, added);
+        } catch (IOException e) {
+            throw new UncheckedIOException("Cannot build FST from " + path, e);
+        }
+    }
+
+    /**
+     * The most frequent output in {@code entries[from, to)}, ties going to the earliest. Runs are all but
+     * always one or two entries long, so the quadratic scan is cheaper than the map it replaces.
+     */
+    private static byte[] majorityOutput(List<Entry> entries, int from, int to) {
+        if (to - from == 1) {
+            return entries.get(from).output();
+        }
+        byte[] best = entries.get(from).output();
+        int bestCount = 0;
+        for (int i = from; i < to; i++) {
+            byte[] candidate = entries.get(i).output();
+            int count = 0;
+            for (int j = from; j < to; j++) {
+                if (Arrays.equals(candidate, entries.get(j).output())) {
+                    count++;
+                }
+            }
+            if (count > bestCount) {
+                bestCount = count;
+                best = candidate;
+            }
+        }
+        return best;
     }
 
     /** Buffer the whole file, sort by unsigned key bytes, then build the FST. Correct for any order. */
@@ -176,6 +279,11 @@ final class FstBuilder {
     }
 
     private static Result compile(FSTCompiler<BytesRef> compiler, int added) throws IOException {
+        if (added == 0) {
+            // Lucene's compiler has no automaton to hand back for an empty input; report the emptiness
+            // rather than a null-bearing FST, so callers decide (build fails, buildFolded carries on).
+            return new Result(null, 0);
+        }
         FST.FSTMetadata<BytesRef> meta = compiler.compile();
         return new Result(FST.fromFSTReader(meta, compiler.getFSTReader()), added);
     }

@@ -36,22 +36,39 @@ import org.apache.lucene.util.fst.Util;
  * <p>The FST is immutable and shared across threads; {@link Util#get} allocates only a transient
  * reader per call and never mutates shared state, so concurrent lookups are safe.
  */
-public final class FstPosDictionaryLemmatizer implements Lemmatizer {
+public final class FstPosDictionaryLemmatizer implements Lemmatizer, FoldedLemmaLookup {
 
-    private static final String UNKNOWN = "O"; // OpenNLP's "not found" marker
+    private static final String UNKNOWN = "O";  // OpenNLP's "not found" marker
+    private static final String ANY_POS = "*";  // POS-relaxed key; see OpenNlpPosLemmatizerFilter
 
     private final FST<BytesRef> fst;
     private final int size;
+    private final FST<BytesRef> foldedFst; // nullable; null -> unicode_folding off, or nothing folds
+    private final int foldedSize;
 
-    private FstPosDictionaryLemmatizer(FST<BytesRef> fst, int size) {
+    private FstPosDictionaryLemmatizer(FST<BytesRef> fst, int size, FST<BytesRef> foldedFst, int foldedSize) {
         this.fst = fst;
         this.size = size;
+        this.foldedFst = foldedFst;
+        this.foldedSize = foldedSize;
     }
 
     /** Load a {@code form<TAB>POS<TAB>lemma} dictionary file (UTF-8, one entry per line). */
     public static FstPosDictionaryLemmatizer fromFile(Path path) {
-        FstBuilder.Result r = FstBuilder.build(path, FstPosDictionaryLemmatizer::parse);
-        return new FstPosDictionaryLemmatizer(r.fst(), r.size());
+        return fromFile(path, false);
+    }
+
+    /**
+     * As {@link #fromFile(Path)}, additionally building the folded companion automaton when
+     * {@code unicodeFolding} is set (see {@link OpenNlpLemmatizer#UNICODE_FOLDING_SETTING}). That costs a
+     * second pass over the file and roughly another key per foldable form, so it is off by default.
+     */
+    public static FstPosDictionaryLemmatizer fromFile(Path path, boolean unicodeFolding) {
+        FstBuilder.Result exact = FstBuilder.build(path, FstPosDictionaryLemmatizer::parse);
+        FstBuilder.Result folded = unicodeFolding
+            ? FstBuilder.buildFolded(path, FstPosDictionaryLemmatizer::parseFolded)
+            : new FstBuilder.Result(null, 0);
+        return new FstPosDictionaryLemmatizer(exact.fst(), exact.size(), folded.fst(), folded.size());
     }
 
     /**
@@ -83,6 +100,38 @@ public final class FstPosDictionaryLemmatizer implements Lemmatizer {
             lemma.getBytes(StandardCharsets.UTF_8));
     }
 
+    /**
+     * Parse one line into its <b>folded</b> keys: the POS-specific {@code fold(form)<TAB>POS} and the
+     * POS-relaxed {@code fold(form)<TAB>*}. A form already equal to its folded shape yields neither — its
+     * folded key would be byte-identical to the exact one, which the primary automaton holds and the
+     * lookup tries first.
+     *
+     * <p>The relaxed key is emitted for <b>every</b> row, not only for rows whose own POS is {@code *},
+     * so that {@link FstBuilder} can settle it by majority across the whole folded class. Emitting it only
+     * where the source row said {@code *} would hand the key to whichever single form happened to carry
+     * that marker, however rare a word it is.
+     */
+    private static List<FstBuilder.Entry> parseFolded(String raw) {
+        FstBuilder.Entry exact = parse(raw);
+        if (exact == null) {
+            return List.of();
+        }
+        var key = new String(exact.key(), StandardCharsets.UTF_8);
+        int tab = key.indexOf('\t');
+        var form = key.substring(0, tab);
+        var folded = UnicodeFolder.fold(form);
+        if (folded.equals(form)) {
+            return List.of();
+        }
+        var pos = key.substring(tab + 1);
+        var relaxed = new FstBuilder.Entry(
+            (folded + '\t' + ANY_POS).getBytes(StandardCharsets.UTF_8), exact.output());
+        return pos.equals(ANY_POS)
+            ? List.of(relaxed) // the POS-specific key would be the same bytes
+            : List.of(new FstBuilder.Entry(
+                (folded + '\t' + pos).getBytes(StandardCharsets.UTF_8), exact.output()), relaxed);
+    }
+
     @Override
     public String[] lemmatize(String[] toks, String[] tags) {
         var lemmas = new String[toks.length];
@@ -103,9 +152,22 @@ public final class FstPosDictionaryLemmatizer implements Lemmatizer {
 
     /** Look up one {@code (word, POS)} pair (case-sensitive); returns the lemma or {@code "O"} when absent. */
     private String lemmatize(String word, String tag) {
-        var key = new BytesRef(word + '\t' + tag);
+        return get(fst, word + '\t' + tag);
+    }
+
+    /**
+     * Look up {@code (fold(word), POS)} in the folded automaton — the last dictionary attempt, made only
+     * after both exact ones missed and only for a token the caller has cleared through
+     * {@link UnicodeFolder#isFolded}. Returns {@code "O"} when folding is off or the key is absent.
+     */
+    @Override
+    public String lemmatizeFolded(String word, String tag) {
+        return foldedFst == null ? UNKNOWN : get(foldedFst, UnicodeFolder.fold(word) + '\t' + tag);
+    }
+
+    private static String get(FST<BytesRef> automaton, String key) {
         try {
-            BytesRef out = Util.get(fst, key);
+            BytesRef out = Util.get(automaton, new BytesRef(key));
             return out == null ? UNKNOWN : out.utf8ToString();
         } catch (IOException e) {
             throw new UncheckedIOException("FST lookup failed", e);
@@ -115,5 +177,10 @@ public final class FstPosDictionaryLemmatizer implements Lemmatizer {
     /** Number of {@code (form, POS) -> lemma} entries. */
     public int size() {
         return size;
+    }
+
+    /** Number of folded keys; {@code 0} when {@code unicode_folding} is off or nothing in the file folds. */
+    public int foldedSize() {
+        return foldedSize;
     }
 }

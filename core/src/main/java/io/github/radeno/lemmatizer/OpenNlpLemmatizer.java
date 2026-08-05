@@ -74,6 +74,24 @@ public final class OpenNlpLemmatizer {
      * lives here beside the other filter settings rather than being spelled twice.
      */
     public static final String KEEP_ORIGINAL_SETTING = "keep_original";
+    /**
+     * Token-filter setting matching tokens that differ from a dictionary form only by Unicode folding —
+     * diacritics above all, but also case, ligatures and compatibility forms (see {@link UnicodeFolder}).
+     * Defaults to {@code false}.
+     *
+     * <p>Dictionary lookup is exact byte matching, so a Slovak lexicon whose forms carry diacritics
+     * misses three quarters of itself on {@code ruzomberku}, and a Greek one misses everything typed
+     * without accents. With this on, a second automaton keyed on folded forms is built and consulted
+     * <b>after</b> both exact attempts, recovering {@code ruzomberku -> Ružomberok} and
+     * {@code αθηνα -> Αθήνα}.
+     *
+     * <p>It is off by default because it is a recall/precision trade, not a fix: the folded automaton
+     * roughly doubles the key count, and a folded hit is an inference from a differently written form
+     * rather than an entry the dictionary holds. Two things keep the cost contained — the folded lookup
+     * never runs while an exact one can succeed, and it is refused for tokens not already written in
+     * folded shape, so correctly spelled text is left on exactly the path it takes today.
+     */
+    public static final String UNICODE_FOLDING_SETTING = "unicode_folding";
 
     /** Accepted {@link #POS_FORMAT_SETTING} values, lower-cased. */
     private static final Set<String> PENN_POS_FORMATS = Set.of("penn");
@@ -87,17 +105,23 @@ public final class OpenNlpLemmatizer {
     private static final ConcurrentHashMap<String, ModelCache.Cached<Lemmatizer>> DICTIONARY_CACHE = new ConcurrentHashMap<>();
 
     private final POSModel posModel;
-    private final LemmatizerModel lemmatizerModel; // nullable when the model fallback is off
-    private final Lemmatizer lemmaDictionary;      // nullable; shared, consulted before the model
-    private final boolean nativePosTags;           // true -> preserve the model's tagset (POSTagFormat.CUSTOM)
-    private final boolean modelFallback;           // false -> dictionary misses leave the token unchanged
-    private final boolean keepOriginal;            // true -> also emit the surface form at the same position
+    private final LemmatizerModel lemmatizerModel;   // nullable when the model fallback is off
+    private final Lemmatizer lemmaDictionary;        // nullable; shared, consulted before the model
+    private final FoldedLemmaLookup foldedDictionary; // nullable; null -> unicode_folding off
+    private final boolean nativePosTags;             // true -> preserve the model's tagset (POSTagFormat.CUSTOM)
+    private final boolean modelFallback;             // false -> dictionary misses leave the token unchanged
+    private final boolean keepOriginal;              // true -> also emit the surface form at the same position
 
     private OpenNlpLemmatizer(POSModel posModel, LemmatizerModel lemmatizerModel, Lemmatizer lemmaDictionary,
-                              boolean nativePosTags, boolean modelFallback, boolean keepOriginal) {
+                              boolean unicodeFolding, boolean nativePosTags, boolean modelFallback,
+                              boolean keepOriginal) {
         this.posModel = posModel;
         this.lemmatizerModel = lemmatizerModel;
         this.lemmaDictionary = lemmaDictionary;
+        // The folded half is a facet of the same shared dictionary, held separately so the filter can
+        // spend both exact attempts before reaching for it.
+        this.foldedDictionary = unicodeFolding && lemmaDictionary instanceof FoldedLemmaLookup folded
+            ? folded : null;
         this.nativePosTags = nativePosTags;
         this.modelFallback = modelFallback;
         this.keepOriginal = keepOriginal;
@@ -178,6 +202,19 @@ public final class OpenNlpLemmatizer {
                                                String lemmatizerModelFile, String lemmatizerDictFile,
                                                boolean nativePosTags, boolean modelFallback,
                                                boolean keepOriginal) {
+        return fromConfig(filterName, configDir, posModelFile, lemmatizerModelFile, lemmatizerDictFile,
+            nativePosTags, modelFallback, keepOriginal, false);
+    }
+
+    /**
+     * As {@link #fromConfig(String, Path, String, String, String, boolean, boolean, boolean)}, additionally
+     * matching tokens that differ from a dictionary form only by folding (see
+     * {@link #UNICODE_FOLDING_SETTING}).
+     */
+    public static OpenNlpLemmatizer fromConfig(String filterName, Path configDir, String posModelFile,
+                                               String lemmatizerModelFile, String lemmatizerDictFile,
+                                               boolean nativePosTags, boolean modelFallback,
+                                               boolean keepOriginal, boolean unicodeFolding) {
         if (isBlank(posModelFile)) {
             throw new IllegalArgumentException(
                 "[" + filterName + "] token filter requires a '" + POS_MODEL_SETTING + "' setting");
@@ -192,7 +229,7 @@ public final class OpenNlpLemmatizer {
         Path dictPath = isBlank(lemmatizerDictFile) ? null : dir.resolve(lemmatizerDictFile);
         Path modelPath = isBlank(lemmatizerModelFile) ? null : dir.resolve(lemmatizerModelFile);
         return fromModels(dir.resolve(posModelFile), modelPath, dictPath, nativePosTags, modelFallback,
-            keepOriginal);
+            keepOriginal, unicodeFolding);
     }
 
     /** Load directly from the two model file paths (no lemmatizer dictionary). */
@@ -230,6 +267,17 @@ public final class OpenNlpLemmatizer {
     public static OpenNlpLemmatizer fromModels(Path posModelPath, Path lemmatizerModelPath, Path dictPath,
                                                boolean nativePosTags, boolean modelFallback,
                                                boolean keepOriginal) {
+        return fromModels(posModelPath, lemmatizerModelPath, dictPath, nativePosTags, modelFallback,
+            keepOriginal, false);
+    }
+
+    /**
+     * As {@link #fromModels(Path, Path, Path, boolean, boolean, boolean)}, additionally matching tokens
+     * that differ from a dictionary form only by folding (see {@link #UNICODE_FOLDING_SETTING}).
+     */
+    public static OpenNlpLemmatizer fromModels(Path posModelPath, Path lemmatizerModelPath, Path dictPath,
+                                               boolean nativePosTags, boolean modelFallback,
+                                               boolean keepOriginal, boolean unicodeFolding) {
         if (dictPath == null && (lemmatizerModelPath == null || !modelFallback)) {
             throw new IllegalArgumentException(
                 "a lemmatizer model is required when there is no dictionary to fall back on");
@@ -240,8 +288,11 @@ public final class OpenNlpLemmatizer {
             loadModel
                 ? ModelCache.loadShared(LEMMA_MODEL_CACHE, lemmatizerModelPath, p -> load(p, LemmatizerModel::new, "lemmatizer"))
                 : null,
-            dictPath == null ? null : ModelCache.loadShared(DICTIONARY_CACHE, dictPath, FstPosDictionaryLemmatizer::fromFile),
-            nativePosTags, modelFallback, keepOriginal);
+            // the folding flag joins the cache key: it decides which automata are built, so a folding and
+            // a non-folding index over one file must not be handed each other's dictionary
+            dictPath == null ? null : ModelCache.loadShared(DICTIONARY_CACHE, dictPath,
+                unicodeFolding ? "folded" : "", p -> FstPosDictionaryLemmatizer.fromFile(p, unicodeFolding)),
+            unicodeFolding, nativePosTags, modelFallback, keepOriginal);
     }
 
     /** Wrap {@code input} with the OpenNLP POS tagger followed by the lemmatizer. */
@@ -259,8 +310,10 @@ public final class OpenNlpLemmatizer {
 
     private TokenStream lemmatize(TokenStream tagged) {
         if (lemmaDictionary != null) {
-            // POS-aware: shared dictionary first, MaxEnt model fallback unless it was turned off
-            return new OpenNlpPosLemmatizerFilter(tagged, lemmaDictionary, modelFallback ? lemmatizerModel : null);
+            // POS-aware: shared dictionary first (exact, then folded when on), MaxEnt model fallback
+            // unless it was turned off
+            return new OpenNlpPosLemmatizerFilter(tagged, lemmaDictionary, foldedDictionary,
+                modelFallback ? lemmatizerModel : null);
         }
         NLPLemmatizerOp lemmaOp;
         try {

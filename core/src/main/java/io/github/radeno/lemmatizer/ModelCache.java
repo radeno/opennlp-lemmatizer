@@ -35,7 +35,21 @@ final class ModelCache {
      * is wasted work only — the loaded artifacts are equivalent and the map converges.
      */
     static <V> V loadShared(ConcurrentHashMap<String, Cached<V>> cache, Path path, Function<Path, V> loader) {
-        String key = path.toAbsolutePath().normalize().toString();
+        return loadShared(cache, path, "", loader);
+    }
+
+    /**
+     * As {@link #loadShared(ConcurrentHashMap, Path, Function)} with {@code variant} discriminating
+     * artifacts built from the same file under different settings.
+     *
+     * <p>Needed because {@code unicode_folding} changes what is built, not just how it is read: two
+     * indices pointing at one dictionary, one with folding and one without, must not be served each
+     * other's automaton. The variant is part of the cache key rather than of the revalidation stamp, so
+     * both live side by side instead of evicting one another on every lookup.
+     */
+    static <V> V loadShared(ConcurrentHashMap<String, Cached<V>> cache, Path path, String variant,
+                            Function<Path, V> loader) {
+        String key = path.toAbsolutePath().normalize() + (variant.isEmpty() ? "" : "|" + variant);
         long size;
         long lastModified;
         try {

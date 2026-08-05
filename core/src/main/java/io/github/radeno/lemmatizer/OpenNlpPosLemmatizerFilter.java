@@ -42,7 +42,8 @@ final class OpenNlpPosLemmatizerFilter extends TokenFilter {
         Map.entry("PART", "RB"), Map.entry("INTJ", "UH"), Map.entry("X", "NN"), Map.entry("SYM", "NN"));
 
     private final Lemmatizer dictionary;
-    private final LemmatizerME model; // nullable; null -> pure-dictionary mode (no model fallback)
+    private final FoldedLemmaLookup folded; // nullable; null -> unicode_folding off
+    private final LemmatizerME model;       // nullable; null -> pure-dictionary mode (no model fallback)
     private final CharTermAttribute termAttr = addAttribute(CharTermAttribute.class);
     private final TypeAttribute typeAttr = addAttribute(TypeAttribute.class);
     private final KeywordAttribute keywordAttr = addAttribute(KeywordAttribute.class);
@@ -58,8 +59,18 @@ final class OpenNlpPosLemmatizerFilter extends TokenFilter {
 
     /** {@code model} may be {@code null} to disable the MaxEnt fallback (pure-dictionary mode). */
     OpenNlpPosLemmatizerFilter(TokenStream input, Lemmatizer dictionary, LemmatizerModel model) {
+        this(input, dictionary, null, model);
+    }
+
+    /**
+     * As above, with {@code folded} supplying the {@code unicode_folding} attempt; {@code null} leaves the
+     * lookup order exactly as it was before the setting existed.
+     */
+    OpenNlpPosLemmatizerFilter(TokenStream input, Lemmatizer dictionary, FoldedLemmaLookup folded,
+                               LemmatizerModel model) {
         super(input);
         this.dictionary = dictionary;
+        this.folded = folded;
         this.model = model == null ? null : new LemmatizerME(model);
     }
 
@@ -76,6 +87,15 @@ final class OpenNlpPosLemmatizerFilter extends TokenFilter {
         String lemma = dictionary.lemmatize(word, tag)[0];     // exact (form, POS) first
         if (isBlank(lemma)) {
             lemma = dictionary.lemmatize(word, anyTag)[0];     // POS-relaxed (single-lemma forms)
+        }
+        // Only now, both exact attempts spent, may the folded automaton speak — and only for a token
+        // already written in folded shape. A richly written token that missed the dictionary is an
+        // unknown word, not a fold away from a known one, and guessing there would outrank the model.
+        if (isBlank(lemma) && folded != null && UnicodeFolder.isFolded(word[0])) {
+            lemma = folded.lemmatizeFolded(word[0], tag[0]);
+            if (isBlank(lemma)) {
+                lemma = folded.lemmatizeFolded(word[0], ANY_POS);
+            }
         }
         if (isBlank(lemma)) {
             if (model == null) {

@@ -50,6 +50,13 @@
         <artifactId>opennlp-tools</artifactId>
         <version>${opennlp.version}</version>
       </dependency>
+      <!-- Unicode folding (UTR#30) for `unicode_folding`; pulls icu4j transitively. Same artifact the
+           `icu_folding` token filter comes from, so the folding is bit-for-bit what users expect. -->
+      <dependency>
+        <groupId>org.apache.lucene</groupId>
+        <artifactId>lucene-analysis-icu</artifactId>
+        <version>${lucene.version}</version>
+      </dependency>
 
       <!-- our shared core -->
       <dependency>

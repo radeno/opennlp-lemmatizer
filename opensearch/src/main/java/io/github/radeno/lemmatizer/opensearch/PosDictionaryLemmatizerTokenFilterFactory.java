@@ -15,7 +15,7 @@ import org.opensearch.index.analysis.AbstractTokenFilterFactory;
  * model fills only the gaps. Required settings (files under {@code <config>/opennlp/}):
  * {@code pos_model}, {@code lemmatizer_model}, {@code dictionary}. Optional: {@code pos_format},
  * {@code model_fallback} (set it to {@code false} for a pure dictionary filter, which also makes
- * {@code lemmatizer_model} unnecessary) and {@code keep_original}.
+ * {@code lemmatizer_model} unnecessary), {@code keep_original} and {@code unicode_folding}.
  */
 public class PosDictionaryLemmatizerTokenFilterFactory extends AbstractTokenFilterFactory {
 
@@ -36,7 +36,8 @@ public class PosDictionaryLemmatizerTokenFilterFactory extends AbstractTokenFilt
             dictionary,
             OpenNlpLemmatizer.isNativePosFormat(name, settings.get(OpenNlpLemmatizer.POS_FORMAT_SETTING)),
             settings.getAsBoolean(OpenNlpLemmatizer.MODEL_FALLBACK_SETTING, true),
-            settings.getAsBoolean(OpenNlpLemmatizer.KEEP_ORIGINAL_SETTING, false));
+            settings.getAsBoolean(OpenNlpLemmatizer.KEEP_ORIGINAL_SETTING, false),
+            settings.getAsBoolean(OpenNlpLemmatizer.UNICODE_FOLDING_SETTING, false));
     }
 
     @Override

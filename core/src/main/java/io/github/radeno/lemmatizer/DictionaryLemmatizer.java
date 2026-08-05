@@ -39,7 +39,7 @@ public final class DictionaryLemmatizer {
      * enclosing instance instead, so two filters reading the same file with different settings still
      * share one automaton.
      */
-    record Dictionary(FST<BytesRef> fst, int size) {
+    record Dictionary(FST<BytesRef> fst, int size, FST<BytesRef> foldedFst, int foldedSize) {
     }
 
     // Node-wide dedup cache (see ModelCache): one FST per file, shared across every index on the node.
@@ -72,13 +72,25 @@ public final class DictionaryLemmatizer {
      */
     public static DictionaryLemmatizer fromConfig(String filterName, Path configDir, String dictionaryFile,
                                                   boolean keepOriginal) {
+        return fromConfig(filterName, configDir, dictionaryFile, keepOriginal, false);
+    }
+
+    /**
+     * As {@link #fromConfig(String, Path, String, boolean)}, additionally matching tokens that differ from
+     * a dictionary form only by folding (see {@link OpenNlpLemmatizer#UNICODE_FOLDING_SETTING}).
+     */
+    public static DictionaryLemmatizer fromConfig(String filterName, Path configDir, String dictionaryFile,
+                                                  boolean keepOriginal, boolean unicodeFolding) {
         if (dictionaryFile == null || dictionaryFile.isBlank()) {
             throw new IllegalArgumentException(
                 "[" + filterName + "] token filter requires a '" + DICTIONARY_SETTING + "' setting");
         }
         Path path = configDir.resolve(OpenNlpLemmatizer.MODELS_DIRECTORY).resolve(dictionaryFile);
-        return new DictionaryLemmatizer(
-            ModelCache.loadShared(CACHE, path, DictionaryLemmatizer::load), keepOriginal);
+        // The folding flag joins the cache key: it changes which automata get built, so a folding and a
+        // non-folding index reading the same file need separate entries rather than one racing the other.
+        var cached = ModelCache.loadShared(CACHE, path, unicodeFolding ? "folded" : "",
+            p -> load(p, unicodeFolding));
+        return new DictionaryLemmatizer(cached, keepOriginal);
     }
 
     /** Load a flat {@code form<TAB>lemma} dictionary file (UTF-8, one pair per line) into an FST. */
@@ -88,12 +100,20 @@ public final class DictionaryLemmatizer {
 
     /** As {@link #fromFile(Path)}, additionally emitting the original token beside each lemma. */
     public static DictionaryLemmatizer fromFile(Path path, boolean keepOriginal) {
-        return new DictionaryLemmatizer(load(path), keepOriginal);
+        return fromFile(path, keepOriginal, false);
     }
 
-    private static Dictionary load(Path path) {
-        FstBuilder.Result r = FstBuilder.build(path, DictionaryLemmatizer::parse);
-        return new Dictionary(r.fst(), r.size());
+    /** As {@link #fromFile(Path, boolean)}, additionally building the folded companion automaton. */
+    public static DictionaryLemmatizer fromFile(Path path, boolean keepOriginal, boolean unicodeFolding) {
+        return new DictionaryLemmatizer(load(path, unicodeFolding), keepOriginal);
+    }
+
+    private static Dictionary load(Path path, boolean unicodeFolding) {
+        FstBuilder.Result exact = FstBuilder.build(path, DictionaryLemmatizer::parse);
+        FstBuilder.Result folded = unicodeFolding
+            ? FstBuilder.buildFolded(path, DictionaryLemmatizer::parseFolded)
+            : new FstBuilder.Result(null, 0);
+        return new Dictionary(exact.fst(), exact.size(), folded.fst(), folded.size());
     }
 
     /** The shared automaton behind this filter; lets a test assert two filters really share one copy. */
@@ -121,19 +141,43 @@ public final class DictionaryLemmatizer {
             form.getBytes(StandardCharsets.UTF_8), lemma.getBytes(StandardCharsets.UTF_8));
     }
 
+    /**
+     * Parse one line into its <b>folded</b> key, or {@code null} to skip. A form already equal to its
+     * folded shape is skipped: that key is byte-identical to the exact one, which the primary automaton
+     * holds and the filter tries first.
+     */
+    private static java.util.List<FstBuilder.Entry> parseFolded(String raw) {
+        FstBuilder.Entry exact = parse(raw);
+        if (exact == null) {
+            return java.util.List.of();
+        }
+        var form = new String(exact.key(), StandardCharsets.UTF_8);
+        var folded = UnicodeFolder.fold(form);
+        return folded.equals(form)
+            ? java.util.List.of()
+            : java.util.List.of(
+                new FstBuilder.Entry(folded.getBytes(StandardCharsets.UTF_8), exact.output()));
+    }
+
     /** Number of {@code form -> lemma} entries. */
     public int size() {
         return dictionary.size();
     }
 
+    /** Number of folded keys; {@code 0} when {@code unicode_folding} is off or nothing in the file folds. */
+    public int foldedSize() {
+        return dictionary.foldedSize();
+    }
+
     public TokenStream apply(TokenStream input) {
         if (!keepOriginal) {
-            return new DictionaryLemmatizerFilter(input, dictionary.fst());
+            return new DictionaryLemmatizerFilter(input, dictionary.fst(), dictionary.foldedFst());
         }
         // Repeat each token, the first copy keyword-marked: the filter skips it, so the surface form
         // survives beside its lemma. RemoveDuplicates then collapses the pair whenever the lemma equals
         // the original, leaving the extra posting only where a token was really rewritten.
-        var lemmatized = new DictionaryLemmatizerFilter(new KeywordRepeatFilter(input), dictionary.fst());
+        var lemmatized = new DictionaryLemmatizerFilter(
+            new KeywordRepeatFilter(input), dictionary.fst(), dictionary.foldedFst());
         return new RemoveDuplicatesTokenFilter(lemmatized);
     }
 }

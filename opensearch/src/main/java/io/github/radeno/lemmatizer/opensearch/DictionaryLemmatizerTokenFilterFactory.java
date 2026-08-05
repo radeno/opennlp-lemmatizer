@@ -15,7 +15,8 @@ import org.opensearch.index.analysis.AbstractTokenFilterFactory;
  *
  * <p>Loads a {@code form<TAB>lemma} dictionary from {@code <config>/opennlp/}. Required setting:
  * {@link DictionaryLemmatizer#DICTIONARY_SETTING} (the dictionary file name). Optional:
- * {@link OpenNlpLemmatizer#KEEP_ORIGINAL_SETTING}.
+ * {@link OpenNlpLemmatizer#KEEP_ORIGINAL_SETTING} and
+ * {@link OpenNlpLemmatizer#UNICODE_FOLDING_SETTING}.
  */
 public class DictionaryLemmatizerTokenFilterFactory extends AbstractTokenFilterFactory {
 
@@ -27,7 +28,8 @@ public class DictionaryLemmatizerTokenFilterFactory extends AbstractTokenFilterF
             name,
             env.configDir(),
             settings.get(DictionaryLemmatizer.DICTIONARY_SETTING),
-            settings.getAsBoolean(OpenNlpLemmatizer.KEEP_ORIGINAL_SETTING, false));
+            settings.getAsBoolean(OpenNlpLemmatizer.KEEP_ORIGINAL_SETTING, false),
+            settings.getAsBoolean(OpenNlpLemmatizer.UNICODE_FOLDING_SETTING, false));
     }
 
     @Override

@@ -137,7 +137,9 @@ language-neutral):
 | `dictionary_lemmatizer` | max speed — flat `form → lemma` lookup, no POS | `dictionary` → e.g. `sk-mte.txt` (Slovak) or `cs-ud.txt` (Czech) |
 
 All three also take [`keep_original`](#keep_original-true--index-the-surface-form-beside-the-lemma) to
-index the surface form beside each lemma.
+index the surface form beside each lemma. The two dictionary filters additionally take
+[`unicode_folding`](#unicode_folding-true--match-text-written-without-its-diacritics), which lets text
+written without its diacritics still find the dictionary.
 
 Ready-made analyzer configs for both filters, per language, are in [examples/](examples/).
 
@@ -187,7 +189,7 @@ jLemmaGen, it **leaves unknown words unchanged instead of mangling them** (jLemm
 case-sensitive, so it mangles capitalised words — `Je → Jy`, `Deti → Deť` — whereas this filter is
 case-insensitive). Fetch a dictionary into `config/opennlp/` (**Slovak → `-mte`, Czech → `-ud`**;
 see [Models](#models)) and name it in the `dictionary` setting — switch languages just by switching
-the file, no plugin change:
+the file, no plugin change. Optional: `keep_original` and `unicode_folding`.
 
 Slovak (MULTEXT-East, 922k forms):
 
@@ -232,8 +234,8 @@ The third filter is the precise middle ground: it runs the OpenNLP POS tagger, t
 (disambiguated by part of speech — `je → byť` as a copula vs `je → jesť` as a verb), and everything
 else still gets a model lemma. Required settings: `pos_model`, `lemmatizer_model`, and `dictionary`
 (a `form<TAB>POS<TAB>lemma` file; fetch with **`-mte-pos`**, see [Models](#models)). Optional:
-`pos_format`, `model_fallback` — with `model_fallback: false`, `lemmatizer_model` is not needed — and
-`keep_original`.
+`pos_format`, `model_fallback` — with `model_fallback: false`, `lemmatizer_model` is not needed —
+`keep_original` and `unicode_folding`.
 
 ```bash
 curl -XPOST localhost:9200/_analyze -H 'Content-Type: application/json' -d '{
@@ -339,6 +341,88 @@ written. That matters exactly where the lemma is wrong, which this project docum
 dance corpus, wrong for a tourism one). None of those become *correct*, but none of them become
 unfindable either.
 
+### `unicode_folding: true` — match text written without its diacritics
+
+Available on both dictionary filters (`pos_dictionary_lemmatizer`, `dictionary_lemmatizer`). Defaults to
+`false`.
+
+**Why it exists.** Dictionary lookup is exact byte matching, and **74.2 % of the forms in the Slovak
+lexicon carry a diacritic**. So a user who types `ruzomberku` — as Slovaks routinely do — misses three
+quarters of the dictionary and falls through to the MaxEnt model, which guesses:
+
+```
+ruzomberku  →  ruzomberka   ✗   (should be Ružomberok)
+kosic       →  kosic        ✗   (Košice)
+trencine    →  trencine     ✗   (Trenčín)
+```
+
+It is not a Slovak problem:
+
+- **Greek** — a dictionary misses everything typed without accents: `αθηνα` vs `Αθήνα`.
+- **Polish** — `Lodz` misses `Łódź`, and here folding is not even accent removal: `ł` has no accent to
+  strip, so stripping combining marks alone would never get there.
+- **Vietnamese** — nearly every word is lost once the tone marks are dropped: `Ha Noi` vs `Hà Nội`.
+
+**What it does.** A second automaton, keyed on the *folded* form, is built beside the exact one and
+consulted **after** both exact attempts. Folding is
+[UTR#30](https://www.unicode.org/reports/tr30/tr30-4.html) via the same normaliser as the `icu_folding`
+token filter, so it is not diacritics only — it also folds case, ligatures, width and compatibility
+forms (`ﬁnance → finance`, `Ⅻ → xii`, `ποιός → ποιοσ`).
+
+```bash
+curl -XPOST localhost:9200/_analyze -H 'Content-Type: application/json' -d '{
+  "tokenizer": "whitespace",
+  "filter": [ "lowercase", { "type": "pos_dictionary_lemmatizer", "pos_model": "sk-pos.bin",
+              "lemmatizer_model": "sk-lemmas.bin", "dictionary": "sk-mte-pos.txt",
+              "unicode_folding": true } ],
+  "text": "Byvam v Ruzomberku uz dlho"
+}'
+# tokens: bývať  v  Ružomberok  už  dlho
+```
+
+**What it buys.** Measured on 5000 Slovak forms that carry diacritics, lemmatised with and without them
+(`UnicodeFoldingTest` asserts the individual cases; the table is the aggregate):
+
+| | input **with** diacritics | input **without** |
+|---|---|---|
+| jLemmaGen (`sk.lem`, for reference) | 99.1 % | 55.5 % |
+| `pos_dictionary_lemmatizer`, folding off | 99.2 % | **27.6 %** |
+| `pos_dictionary_lemmatizer`, `unicode_folding: true` | 99.2 % | **97.8 %** |
+
+The left column is the point: **it does not move.** The folded automaton sits behind both exact
+attempts, so it can only answer where the filter previously had nothing — correctly spelled text comes
+out byte-identical, and `UnicodeFoldingTest` asserts exactly that.
+
+jLemmaGen is in the table because it is the usual alternative and it degrades more gracefully than plain
+exact lookup — its RDR rules have no notion of a miss, so they always produce *something*. But guessing a
+suffix cannot recover a stem it has never seen in that shape, which is why it stalls at 55.5 %.
+
+**What it costs.**
+
+| | |
+|---|---|
+| folded keys added (Slovak, 926k entries) | +680k (FST 1.2 MB → 2.4 MB total) |
+| extra load time | ~0.6 s, once per file per node |
+| load-time memory peak | the folded keys are buffered and sorted before compiling — folding is not order-preserving, so this build cannot stream the way the exact one does |
+| accuracy on correctly spelled text | unchanged (byte-identical) |
+| ambiguity introduced | 2.4 % of new keys are claimed by more than one word |
+
+That last row is the real trade. Folding collapses distinct words (`kosičky`/`košíčky`), and a folded hit
+is an inference from a differently written form, not an entry the dictionary holds. Two things keep it
+contained:
+
+- **The folded lookup never runs while an exact one can succeed** — including the POS-relaxed `*` retry.
+- **It is refused for tokens not already written in plain form.** If you typed `Ružomberok` and it missed,
+  folding is speculation, so the model keeps that token. Only plainly written tokens (`ruzomberku`,
+  `Petr`, `ΠΟΙΟΣ`) reach the folded automaton.
+
+Where a folded key is genuinely ambiguous it goes to the reading **most of its class supports**, not to
+whichever row came first — Slovak `už` (two rows) outvotes the single `úž` row of `úžiť`, so `uz → už`.
+
+> **Do not use `asciifolding` for this.** Its output is ASCII, so on a Greek or Cyrillic dictionary it
+> leaves every form untouched — you would get an empty folded automaton and a setting that silently does
+> nothing, with no error. That is why this ships ICU folding.
+
 ### Two recipes worth knowing
 
 All three filters honour `KeywordAttribute`, so the standard Lucene chains work without any setting.
@@ -368,6 +452,26 @@ stacked at `position_increment: 0`. Note this feeds the POS tagger each token tw
 come out identical, but the tags it reports in the `type` attribute do shift. **`keep_original: true`
 (above) does the same thing without that flaw** — it repeats the token after the tagger — so reach for
 the manual chain only when you need the repeat around filters other than these.
+
+**Fold diacritics away in the index — but only after the lemmatizer:**
+
+```json
+[ "lowercase", { "type": "pos_dictionary_lemmatizer", "...": "..." }, "asciifolding", "lowercase" ]
+```
+
+Order is not a style choice here. Dictionary keys carry their diacritics, so a folding filter placed
+**before** the lemmatizer disables 74 % of the Slovak dictionary:
+
+```
+lowercase → asciifolding → lemmatizer   Bývam v Ružomberku  →  byvať v ruzomberka   ✗
+lowercase → lemmatizer → asciifolding   Bývam v Ružomberku  →  byvat v Ruzomberok   ✓
+```
+
+The lemma carries its diacritics out of the filter and folds cleanly afterwards; it also keeps the case
+it is stored with, which is why the second `lowercase` is there. This normalises what gets **indexed**
+and is unrelated to [`unicode_folding`](#unicode_folding-true--match-text-written-without-its-diacritics),
+which changes what the dictionary **matches**. Use both together when your users type without diacritics
+*and* you want a diacritic-insensitive index.
 
 ## OpenNLP vs jLemmaGen
 

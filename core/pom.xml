@@ -26,6 +26,11 @@
       <groupId>org.apache.opennlp</groupId>
       <artifactId>opennlp-tools</artifactId>
     </dependency>
+    <!-- Unicode folding (UTR#30) behind the `unicode_folding` setting; see UnicodeFolder -->
+    <dependency>
+      <groupId>org.apache.lucene</groupId>
+      <artifactId>lucene-analysis-icu</artifactId>
+    </dependency>
 
     <!-- test: side-by-side comparison demo against jLemmaGen -->
     <dependency>
