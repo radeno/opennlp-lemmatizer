@@ -35,7 +35,7 @@ import org.apache.lucene.analysis.opennlp.tools.NLPPOSTaggerOp;
  * <p>This class has no OpenSearch/Elasticsearch dependency — the thin platform wrappers reuse it,
  * along with the shared {@link #MODELS_DIRECTORY} / setting-name constants and {@link #fromConfig}.
  */
-public final class OpenNlpLemmatizer {
+public final class OpenNlpLemmatizer implements LemmatizerFilter {
 
     /** Sub-directory of the node's config dir holding the models: {@code <config>/opennlp/}. */
     public static final String MODELS_DIRECTORY = "opennlp";
@@ -235,6 +235,7 @@ public final class OpenNlpLemmatizer {
 
 
     /** Wrap {@code input} with the OpenNLP POS tagger followed by the lemmatizer. */
+    @Override
     public TokenStream apply(TokenStream input) {
         // Lucene's NLPPOSTaggerOp hard-codes POSTagFormat.PENN; for a non-Penn model (e.g. UPOS+gender)
         // use a CUSTOM-format tagger so the dictionary sees the tags the model actually emits.

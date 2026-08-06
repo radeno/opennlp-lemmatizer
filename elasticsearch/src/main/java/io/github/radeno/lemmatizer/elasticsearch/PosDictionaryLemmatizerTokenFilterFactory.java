@@ -1,8 +1,7 @@
 package io.github.radeno.lemmatizer.elasticsearch;
 
-import io.github.radeno.lemmatizer.DictionaryLemmatizer;
-import io.github.radeno.lemmatizer.LemmatizerOptions;
-import io.github.radeno.lemmatizer.OpenNlpLemmatizer;
+import io.github.radeno.lemmatizer.LemmatizerFilter;
+import io.github.radeno.lemmatizer.LemmatizerFilters;
 
 import org.apache.lucene.analysis.TokenStream;
 import org.elasticsearch.common.settings.Settings;
@@ -11,33 +10,20 @@ import org.elasticsearch.index.IndexSettings;
 import org.elasticsearch.index.analysis.AbstractTokenFilterFactory;
 
 /**
- * Elasticsearch token filter combining a POS-aware {@code form<TAB>POS<TAB>lemma} dictionary (e.g.
- * MULTEXT-East) with the OpenNLP MaxEnt model as fallback: the dictionary is consulted first and the
- * model fills only the gaps. Required settings (files under {@code <config>/opennlp/}):
- * {@code pos_model}, {@code lemmatizer_model}, {@code dictionary}. Optional: {@code pos_format},
- * {@code model_fallback} (set it to {@code false} for a pure dictionary filter, which also makes
- * {@code lemmatizer_model} unnecessary), {@code keep_original} and {@code unicode_folding}.
+ * Elasticsearch {@code pos_dictionary_lemmatizer} token filter. A POS-aware {@code form/POS/lemma} dictionary consulted first, the MaxEnt model filling the gaps.
+ *
+ * <p>Which settings it reads, and how they are validated, lives in
+ * {@link LemmatizerFilters#posDictionary} — shared with the OpenSearch wrapper, which differs from this class
+ * only in the {@code super(...)} call its base class requires.
  */
 public class PosDictionaryLemmatizerTokenFilterFactory extends AbstractTokenFilterFactory {
 
-    private final OpenNlpLemmatizer lemmatizer;
+    private final LemmatizerFilter lemmatizer;
 
     public PosDictionaryLemmatizerTokenFilterFactory(IndexSettings indexSettings, Environment env, String name, Settings settings) {
         super(name); // Elasticsearch 9.x: AbstractTokenFilterFactory(String name)
-        String dictionary = settings.get(DictionaryLemmatizer.DICTIONARY_SETTING);
-        if (dictionary == null || dictionary.isBlank()) {
-            throw new IllegalArgumentException("[" + name + "] pos_dictionary_lemmatizer requires a '"
-                + DictionaryLemmatizer.DICTIONARY_SETTING + "' setting (a form<TAB>POS<TAB>lemma file)");
-        }
-        this.lemmatizer = OpenNlpLemmatizer.fromConfig(
-            name,
-            env.configDir(),
-            settings.get(OpenNlpLemmatizer.POS_MODEL_SETTING),
-            settings.get(OpenNlpLemmatizer.LEMMATIZER_MODEL_SETTING),
-            dictionary,
-            LemmatizerOptions.from(
-                OpenNlpLemmatizer.isNativePosFormat(name, settings.get(OpenNlpLemmatizer.POS_FORMAT_SETTING)),
-                settings::getAsBoolean));
+        this.lemmatizer = LemmatizerFilters.posDictionary(name, env.configDir(), settings::get,
+            settings::getAsBoolean);
     }
 
     @Override

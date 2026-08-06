@@ -30,7 +30,7 @@ import org.apache.lucene.util.fst.FST;
  * automaton with no in-heap buffer. The loaded FST is immutable and shared across threads (and, via
  * {@link ModelCache}, across every index on the node).
  */
-public final class DictionaryLemmatizer {
+public final class DictionaryLemmatizer implements LemmatizerFilter {
 
     /** Token-filter setting naming the dictionary file (in {@code <config>/opennlp/}). */
     public static final String DICTIONARY_SETTING = "dictionary";
@@ -157,6 +157,7 @@ public final class DictionaryLemmatizer {
         return dictionary.foldedSize();
     }
 
+    @Override
     public TokenStream apply(TokenStream input) {
         if (!keepOriginal) {
             return new DictionaryLemmatizerFilter(input, dictionary.fst(), dictionary.foldedFst());

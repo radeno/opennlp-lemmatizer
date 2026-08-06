@@ -1,7 +1,7 @@
 package io.github.radeno.lemmatizer.opensearch;
 
-import io.github.radeno.lemmatizer.LemmatizerOptions;
-import io.github.radeno.lemmatizer.OpenNlpLemmatizer;
+import io.github.radeno.lemmatizer.LemmatizerFilter;
+import io.github.radeno.lemmatizer.LemmatizerFilters;
 
 import org.apache.lucene.analysis.TokenStream;
 import org.opensearch.common.settings.Settings;
@@ -10,24 +10,20 @@ import org.opensearch.index.IndexSettings;
 import org.opensearch.index.analysis.AbstractTokenFilterFactory;
 
 /**
- * OpenSearch token filter that lemmatizes tokens with Apache OpenNLP (POS-aware).
+ * OpenSearch {@code opennlp_lemmatizer} token filter. POS-aware lemmatization by the OpenNLP MaxEnt model, no dictionary.
  *
- * <p>Models are loaded from {@code <config>/opennlp/}. Required settings:
- * {@link OpenNlpLemmatizer#POS_MODEL_SETTING} and {@link OpenNlpLemmatizer#LEMMATIZER_MODEL_SETTING}
- * (the {@code .bin} file names). Optional: {@link OpenNlpLemmatizer#KEEP_ORIGINAL_SETTING}.
+ * <p>Which settings it reads, and how they are validated, lives in
+ * {@link LemmatizerFilters#opennlp} — shared with the Elasticsearch wrapper, which differs from this class
+ * only in the {@code super(...)} call its base class requires.
  */
 public class OpenNlpLemmatizerTokenFilterFactory extends AbstractTokenFilterFactory {
 
-    private final OpenNlpLemmatizer lemmatizer;
+    private final LemmatizerFilter lemmatizer;
 
     public OpenNlpLemmatizerTokenFilterFactory(IndexSettings indexSettings, Environment env, String name, Settings settings) {
         super(indexSettings, name, settings);
-        this.lemmatizer = OpenNlpLemmatizer.fromConfig(
-            name,
-            env.configDir(),
-            settings.get(OpenNlpLemmatizer.POS_MODEL_SETTING),
-            settings.get(OpenNlpLemmatizer.LEMMATIZER_MODEL_SETTING),
-            LemmatizerOptions.from(false, settings::getAsBoolean));
+        this.lemmatizer = LemmatizerFilters.opennlp(name, env.configDir(), settings::get,
+            settings::getAsBoolean);
     }
 
     @Override

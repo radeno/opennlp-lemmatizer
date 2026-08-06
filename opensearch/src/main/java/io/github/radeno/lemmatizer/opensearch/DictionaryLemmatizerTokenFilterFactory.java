@@ -1,8 +1,7 @@
 package io.github.radeno.lemmatizer.opensearch;
 
-import io.github.radeno.lemmatizer.DictionaryLemmatizer;
-import io.github.radeno.lemmatizer.LemmatizerOptions;
-import io.github.radeno.lemmatizer.OpenNlpLemmatizer;
+import io.github.radeno.lemmatizer.LemmatizerFilter;
+import io.github.radeno.lemmatizer.LemmatizerFilters;
 
 import org.apache.lucene.analysis.TokenStream;
 import org.opensearch.common.settings.Settings;
@@ -11,25 +10,20 @@ import org.opensearch.index.IndexSettings;
 import org.opensearch.index.analysis.AbstractTokenFilterFactory;
 
 /**
- * OpenSearch token filter that lemmatizes tokens by flat FST dictionary lookup (fast, POS-free,
- * low-memory).
+ * OpenSearch {@code dictionary_lemmatizer} token filter. Flat {@code form -> lemma} lookup, no part of speech, maximum speed.
  *
- * <p>Loads a {@code form<TAB>lemma} dictionary from {@code <config>/opennlp/}. Required setting:
- * {@link DictionaryLemmatizer#DICTIONARY_SETTING} (the dictionary file name). Optional:
- * {@link OpenNlpLemmatizer#KEEP_ORIGINAL_SETTING} and
- * {@link OpenNlpLemmatizer#UNICODE_FOLDING_SETTING}.
+ * <p>Which settings it reads, and how they are validated, lives in
+ * {@link LemmatizerFilters#dictionary} — shared with the Elasticsearch wrapper, which differs from this class
+ * only in the {@code super(...)} call its base class requires.
  */
 public class DictionaryLemmatizerTokenFilterFactory extends AbstractTokenFilterFactory {
 
-    private final DictionaryLemmatizer lemmatizer;
+    private final LemmatizerFilter lemmatizer;
 
     public DictionaryLemmatizerTokenFilterFactory(IndexSettings indexSettings, Environment env, String name, Settings settings) {
         super(indexSettings, name, settings);
-        this.lemmatizer = DictionaryLemmatizer.fromConfig(
-            name,
-            env.configDir(),
-            settings.get(DictionaryLemmatizer.DICTIONARY_SETTING),
-            LemmatizerOptions.from(false, settings::getAsBoolean));
+        this.lemmatizer = LemmatizerFilters.dictionary(name, env.configDir(), settings::get,
+            settings::getAsBoolean);
     }
 
     @Override
