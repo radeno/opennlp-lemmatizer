@@ -13,8 +13,9 @@ package io.github.radeno.lemmatizer;
 interface FoldedLemmaLookup {
 
     /**
-     * The lemma for {@code (fold(word), tag)}, or OpenNLP's {@code "O"} marker when absent. Callers must
-     * gate this on {@link UnicodeFolder#isFolded(String)}.
+     * The lemma for an already-folded {@code (form, tag)}, or OpenNLP's {@code "O"} marker when absent.
+     * Callers obtain {@code foldedWord} from {@link UnicodeFolder#foldedKey(String)}, which both applies
+     * the guard and produces the key — so a token is folded once however many attempts follow.
      */
-    String lemmatizeFolded(String word, String tag);
+    String lemmatizeFolded(String foldedWord, String tag);
 }

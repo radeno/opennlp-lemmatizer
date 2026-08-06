@@ -91,10 +91,15 @@ final class OpenNlpPosLemmatizerFilter extends TokenFilter {
         // Only now, both exact attempts spent, may the folded automaton speak — and only for a token
         // already written in folded shape. A richly written token that missed the dictionary is an
         // unknown word, not a fold away from a known one, and guessing there would outrank the model.
-        if (isBlank(lemma) && folded != null && UnicodeFolder.isFolded(word[0])) {
-            lemma = folded.lemmatizeFolded(word[0], tag[0]);
-            if (isBlank(lemma)) {
-                lemma = folded.lemmatizeFolded(word[0], ANY_POS);
+        if (isBlank(lemma) && folded != null) {
+            // Folded once for both attempts: the guard has to fold to answer at all, so its result is
+            // the key rather than something to recompute.
+            String foldedWord = UnicodeFolder.foldedKey(word[0]);
+            if (foldedWord != null) {
+                lemma = folded.lemmatizeFolded(foldedWord, tag[0]);
+                if (isBlank(lemma)) {
+                    lemma = folded.lemmatizeFolded(foldedWord, ANY_POS);
+                }
             }
         }
         if (isBlank(lemma)) {

@@ -1,5 +1,7 @@
 package io.github.radeno.lemmatizer;
 
+import java.util.Locale;
+
 import com.ibm.icu.text.Normalizer2;
 
 import org.apache.lucene.analysis.icu.ICUFoldingFilter;
@@ -54,7 +56,47 @@ final class UnicodeFolder {
      * {@code equalsIgnoreCase} alone would miss.
      */
     static boolean isFolded(String token) {
+        return foldedKey(token) != null;
+    }
+
+    /**
+     * The folded form to look {@code token} up by, or {@code null} when the guard refuses it.
+     *
+     * <p>Answering both questions at once is deliberate: deciding whether a token is plainly written
+     * requires folding it, so a caller that asks {@link #isFolded} and then folds again pays the ICU
+     * normaliser twice for one token — three times in the POS filter, which then folds once per POS
+     * attempt. That is the whole of what {@code unicode_folding} used to cost on text where the folded
+     * automaton is almost never reached.
+     */
+    static String foldedKey(String token) {
+        String ascii = asciiFolded(token);
+        if (ascii != null) {
+            return ascii; // plain by construction, so the guard cannot refuse it
+        }
         String folded = fold(token);
-        return folded.length() == token.length() && folded.equalsIgnoreCase(token);
+        return folded.length() == token.length() && folded.equalsIgnoreCase(token) ? folded : null;
+    }
+
+    /**
+     * The folded form of an all-ASCII token, or {@code null} when this shortcut does not apply.
+     *
+     * <p>UTR#30 over ASCII is plain lower-casing, so the normaliser has nothing to contribute and can be
+     * skipped — which matters because {@link #foldedKey} runs on <em>every</em> token the dictionary
+     * misses, and diacritic-less input, the case the whole setting exists for, is all-ASCII by
+     * definition. {@link String#toLowerCase} returns the same instance when nothing changes, so an
+     * already-lower-case token costs one scan and no allocation.
+     *
+     * <p>Two ASCII code points are not lower-cased but <b>deleted</b> by UTR#30, being spacing accents:
+     * {@code ^} (U+005E) and {@code `} (U+0060). Verified over all 128 code points, they are the only
+     * two, and a token containing either falls through to the normaliser rather than being mis-folded.
+     */
+    private static String asciiFolded(String token) {
+        for (int i = 0; i < token.length(); i++) {
+            char c = token.charAt(i);
+            if (c > 127 || c == '^' || c == '`') {
+                return null;
+            }
+        }
+        return token.toLowerCase(Locale.ROOT);
     }
 }

@@ -143,13 +143,14 @@ public final class FstPosDictionaryLemmatizer implements Lemmatizer, FoldedLemma
     }
 
     /**
-     * Look up {@code (fold(word), POS)} in the folded automaton — the last dictionary attempt, made only
-     * after both exact ones missed and only for a token the caller has cleared through
-     * {@link UnicodeFolder#isFolded}. Returns {@code "O"} when folding is off or the key is absent.
+     * Look up an already-folded {@code (form, POS)} in the folded automaton — the last dictionary
+     * attempt, made only after both exact ones missed. The caller folds, because it has to do so anyway
+     * to clear the token through {@link UnicodeFolder#foldedKey}. Returns {@code "O"} when folding is
+     * off or the key is absent.
      */
     @Override
-    public String lemmatizeFolded(String word, String tag) {
-        return decode(dictionary.lookupFolded(new BytesRef(UnicodeFolder.fold(word) + '\t' + tag)));
+    public String lemmatizeFolded(String foldedWord, String tag) {
+        return decode(dictionary.lookupFolded(new BytesRef(foldedWord + '\t' + tag)));
     }
 
     /** OpenNLP signals "not found" with a marker string rather than a null, so absence is spelled here. */

@@ -41,11 +41,12 @@ final class DictionaryLemmatizerFilter extends TokenFilter {
         keyScratch.copyChars(termAttr.buffer(), 0, termAttr.length()); // UTF-16 -> UTF-8 into reused buffer
         BytesRef lemma = dictionary.lookup(keyScratch.get());
         // Folded lookup only after the exact one missed, and only for a token already in folded shape —
-        // see UnicodeFolder#isFolded. Costs a String per miss, which is why it stays behind the setting.
+        // UnicodeFolder#foldedKey applies that guard and yields the key in one fold. Costs a String per
+        // miss, which is why it stays behind the setting.
         if (lemma == null && dictionary.folded() != null) {
-            String term = termAttr.toString();
-            if (UnicodeFolder.isFolded(term)) {
-                keyScratch.copyChars(UnicodeFolder.fold(term));
+            String foldedKey = UnicodeFolder.foldedKey(termAttr.toString());
+            if (foldedKey != null) {
+                keyScratch.copyChars(foldedKey);
                 lemma = dictionary.lookupFolded(keyScratch.get());
             }
         }

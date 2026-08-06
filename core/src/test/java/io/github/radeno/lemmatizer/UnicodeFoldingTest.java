@@ -88,6 +88,28 @@ public class UnicodeFoldingTest {
         assertFalse(UnicodeFolder.isFolded("straße"));     // folding expands, so length differs
     }
 
+    /**
+     * {@link UnicodeFolder#foldedKey} skips the ICU normaliser for all-ASCII tokens, so it must agree
+     * with it everywhere — including the two ASCII code points UTR#30 <em>deletes</em> rather than
+     * lower-cases, {@code ^} and {@code `}, which are what makes the shortcut a shortcut and not a
+     * rewrite of the rule.
+     */
+    @Test
+    public void theAsciiShortcutAgreesWithTheNormaliser() {
+        for (int c = 0; c < 128; c++) {
+            String token = "ab" + (char) c + "cd";
+            String viaIcu = UnicodeFolder.fold(token);
+            boolean plain = viaIcu.length() == token.length() && viaIcu.equalsIgnoreCase(token);
+            assertEquals("U+" + Integer.toHexString(c), plain ? viaIcu : null,
+                UnicodeFolder.foldedKey(token));
+        }
+        assertEquals("ruzomberok", UnicodeFolder.foldedKey("Ruzomberok"));
+        assertEquals("sku-4711", UnicodeFolder.foldedKey("SKU-4711"));
+        // ^ and ` fold away, changing the length, so the guard refuses them rather than mis-keying
+        assertEquals(null, UnicodeFolder.foldedKey("a^b"));
+        assertEquals(null, UnicodeFolder.foldedKey("a`b"));
+    }
+
     // --- flat dictionary_lemmatizer ---
 
     @Test
