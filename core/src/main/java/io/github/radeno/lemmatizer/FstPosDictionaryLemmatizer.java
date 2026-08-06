@@ -1,7 +1,5 @@
 package io.github.radeno.lemmatizer;
 
-import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -11,8 +9,6 @@ import java.util.Locale;
 import opennlp.tools.lemmatizer.Lemmatizer;
 
 import org.apache.lucene.util.BytesRef;
-import org.apache.lucene.util.fst.FST;
-import org.apache.lucene.util.fst.Util;
 
 /**
  * POS-aware lemma dictionary backed by a Lucene FST (finite-state transducer), implementing OpenNLP's
@@ -41,16 +37,10 @@ public final class FstPosDictionaryLemmatizer implements Lemmatizer, FoldedLemma
     private static final String UNKNOWN = "O";  // OpenNLP's "not found" marker
     private static final String ANY_POS = "*";  // POS-relaxed key; see OpenNlpPosLemmatizerFilter
 
-    private final FST<BytesRef> fst;
-    private final int size;
-    private final FST<BytesRef> foldedFst; // nullable; null -> unicode_folding off, or nothing folds
-    private final int foldedSize;
+    private final DictionaryFsts dictionary;
 
-    private FstPosDictionaryLemmatizer(FST<BytesRef> fst, int size, FST<BytesRef> foldedFst, int foldedSize) {
-        this.fst = fst;
-        this.size = size;
-        this.foldedFst = foldedFst;
-        this.foldedSize = foldedSize;
+    private FstPosDictionaryLemmatizer(DictionaryFsts dictionary) {
+        this.dictionary = dictionary;
     }
 
     /** Load a {@code form<TAB>POS<TAB>lemma} dictionary file (UTF-8, one entry per line). */
@@ -64,11 +54,8 @@ public final class FstPosDictionaryLemmatizer implements Lemmatizer, FoldedLemma
      * second pass over the file and roughly another key per foldable form, so it is off by default.
      */
     public static FstPosDictionaryLemmatizer fromFile(Path path, boolean unicodeFolding) {
-        FstBuilder.Result exact = FstBuilder.build(path, FstPosDictionaryLemmatizer::parse);
-        FstBuilder.Result folded = unicodeFolding
-            ? FstBuilder.buildFolded(path, FstPosDictionaryLemmatizer::parseFolded)
-            : new FstBuilder.Result(null, 0);
-        return new FstPosDictionaryLemmatizer(exact.fst(), exact.size(), folded.fst(), folded.size());
+        return new FstPosDictionaryLemmatizer(DictionaryFsts.load(path,
+            FstPosDictionaryLemmatizer::parse, FstPosDictionaryLemmatizer::parseFolded, unicodeFolding));
     }
 
     /**
@@ -152,7 +139,7 @@ public final class FstPosDictionaryLemmatizer implements Lemmatizer, FoldedLemma
 
     /** Look up one {@code (word, POS)} pair (case-sensitive); returns the lemma or {@code "O"} when absent. */
     private String lemmatize(String word, String tag) {
-        return get(fst, word + '\t' + tag);
+        return decode(dictionary.lookup(new BytesRef(word + '\t' + tag)));
     }
 
     /**
@@ -162,25 +149,21 @@ public final class FstPosDictionaryLemmatizer implements Lemmatizer, FoldedLemma
      */
     @Override
     public String lemmatizeFolded(String word, String tag) {
-        return foldedFst == null ? UNKNOWN : get(foldedFst, UnicodeFolder.fold(word) + '\t' + tag);
+        return decode(dictionary.lookupFolded(new BytesRef(UnicodeFolder.fold(word) + '\t' + tag)));
     }
 
-    private static String get(FST<BytesRef> automaton, String key) {
-        try {
-            BytesRef out = Util.get(automaton, new BytesRef(key));
-            return out == null ? UNKNOWN : out.utf8ToString();
-        } catch (IOException e) {
-            throw new UncheckedIOException("FST lookup failed", e);
-        }
+    /** OpenNLP signals "not found" with a marker string rather than a null, so absence is spelled here. */
+    private static String decode(BytesRef out) {
+        return out == null ? UNKNOWN : out.utf8ToString();
     }
 
     /** Number of {@code (form, POS) -> lemma} entries. */
     public int size() {
-        return size;
+        return dictionary.size();
     }
 
     /** Number of folded keys; {@code 0} when {@code unicode_folding} is off or nothing in the file folds. */
     public int foldedSize() {
-        return foldedSize;
+        return dictionary.foldedSize();
     }
 }

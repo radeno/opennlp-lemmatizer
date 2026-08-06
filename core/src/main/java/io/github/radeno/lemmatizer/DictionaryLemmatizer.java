@@ -9,8 +9,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.apache.lucene.analysis.TokenStream;
 import org.apache.lucene.analysis.miscellaneous.KeywordRepeatFilter;
 import org.apache.lucene.analysis.miscellaneous.RemoveDuplicatesTokenFilter;
-import org.apache.lucene.util.BytesRef;
-import org.apache.lucene.util.fst.FST;
 
 /**
  * Fast, POS-free lemmatization by flat {@code form → lemma} dictionary lookup, backed by a Lucene FST.
@@ -35,22 +33,14 @@ public final class DictionaryLemmatizer implements LemmatizerFilter {
     /** Token-filter setting naming the dictionary file (in {@code <config>/opennlp/}). */
     public static final String DICTIONARY_SETTING = "dictionary";
 
-    /**
-     * The heavy, immutable half — what the node-wide cache shares. Per-filter settings live on the
-     * enclosing instance instead, so two filters reading the same file with different settings still
-     * share one automaton.
-     */
-    record Dictionary(FST<BytesRef> fst, int size, FST<BytesRef> foldedFst, int foldedSize) {
-    }
-
     // Node-wide dedup cache (see ModelCache): one FST per file, shared across every index on the node.
-    private static final ConcurrentHashMap<String, ModelCache.Cached<Dictionary>> CACHE =
+    private static final ConcurrentHashMap<String, ModelCache.Cached<DictionaryFsts>> CACHE =
         new ConcurrentHashMap<>();
 
-    private final Dictionary dictionary;
+    private final DictionaryFsts dictionary;
     private final boolean keepOriginal;
 
-    private DictionaryLemmatizer(Dictionary dictionary, boolean keepOriginal) {
+    private DictionaryLemmatizer(DictionaryFsts dictionary, boolean keepOriginal) {
         this.dictionary = dictionary;
         this.keepOriginal = keepOriginal;
     }
@@ -96,16 +86,13 @@ public final class DictionaryLemmatizer implements LemmatizerFilter {
         return new DictionaryLemmatizer(load(path, options.unicodeFolding()), options.keepOriginal());
     }
 
-    private static Dictionary load(Path path, boolean unicodeFolding) {
-        FstBuilder.Result exact = FstBuilder.build(path, DictionaryLemmatizer::parse);
-        FstBuilder.Result folded = unicodeFolding
-            ? FstBuilder.buildFolded(path, DictionaryLemmatizer::parseFolded)
-            : new FstBuilder.Result(null, 0);
-        return new Dictionary(exact.fst(), exact.size(), folded.fst(), folded.size());
+    private static DictionaryFsts load(Path path, boolean unicodeFolding) {
+        return DictionaryFsts.load(path, DictionaryLemmatizer::parse, DictionaryLemmatizer::parseFolded,
+            unicodeFolding);
     }
 
-    /** The shared automaton behind this filter; lets a test assert two filters really share one copy. */
-    Dictionary dictionary() {
+    /** The shared automata behind this filter; lets a test assert two filters really share one copy. */
+    DictionaryFsts dictionary() {
         return dictionary;
     }
 
@@ -160,13 +147,12 @@ public final class DictionaryLemmatizer implements LemmatizerFilter {
     @Override
     public TokenStream apply(TokenStream input) {
         if (!keepOriginal) {
-            return new DictionaryLemmatizerFilter(input, dictionary.fst(), dictionary.foldedFst());
+            return new DictionaryLemmatizerFilter(input, dictionary);
         }
         // Repeat each token, the first copy keyword-marked: the filter skips it, so the surface form
         // survives beside its lemma. RemoveDuplicates then collapses the pair whenever the lemma equals
         // the original, leaving the extra posting only where a token was really rewritten.
-        var lemmatized = new DictionaryLemmatizerFilter(
-            new KeywordRepeatFilter(input), dictionary.fst(), dictionary.foldedFst());
+        var lemmatized = new DictionaryLemmatizerFilter(new KeywordRepeatFilter(input), dictionary);
         return new RemoveDuplicatesTokenFilter(lemmatized);
     }
 }
