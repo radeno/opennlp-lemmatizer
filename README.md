@@ -402,10 +402,30 @@ suffix cannot recover a stem it has never seen in that shape, which is why it st
 | | |
 |---|---|
 | folded keys added (Slovak, 926k entries) | +680k (FST 1.2 MB → 2.4 MB total) |
-| extra load time | ~0.6 s, once per file per node |
+| extra load time | ~0.4 s, once per file per node |
 | load-time memory peak | the folded keys are buffered and sorted before compiling — folding is not order-preserving, so this build cannot stream the way the exact one does |
 | accuracy on correctly spelled text | unchanged (byte-identical) |
 | ambiguity introduced | 2.4 % of new keys are claimed by more than one word |
+
+**What it costs in throughput** depends on which filter you put it on, and on one of them it is not a
+cost at all. Folding on against folding off, Slovak lexicon:
+
+| | correctly spelled text | input without diacritics |
+|---|---|---|
+| `dictionary_lemmatizer` | −17 % | −49 % |
+| `pos_dictionary_lemmatizer` | unchanged (±5 %) | **+37 %** |
+
+On the flat filter, folding is pure added work: a token the exact automaton misses now walks a second
+automaton, and the more of your input is written plainly, the more often that happens.
+
+On the POS-aware filter it **pays for itself**, because that second walk replaces something far more
+expensive. A miss there falls through to the MaxEnt model, and one model lemmatization costs more than
+an FST traversal by a wide margin — so every token folding recovers is a model call not made. On
+diacritic-less input, where the model was previously doing (and mostly fumbling) the work, the filter
+ends up faster *and* more accurate: 27.6 % → 97.8 %, at +37 % throughput.
+
+**With the setting off, none of this is on the path at all**, so an index that does not want folding
+pays nothing for the feature existing.
 
 That last row is the real trade. Folding collapses distinct words (`kosičky`/`košíčky`), and a folded hit
 is an inference from a differently written form, not an entry the dictionary holds. Two things keep it
