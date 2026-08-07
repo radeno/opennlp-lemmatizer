@@ -10,13 +10,22 @@
             <outputDirectory>/</outputDirectory>
             <useProjectArtifact>true</useProjectArtifact>
             <!-- bundle only what Elasticsearch core does NOT provide; elasticsearch + lucene-core +
-                 lucene-analysis-common are provided at runtime and must not be bundled -->
+                 lucene-analysis-common are provided at runtime and must not be bundled.
+
+                 This is an ALLOWLIST: a dependency added to core and not added here is dropped from
+                 the zip silently, and only fails on a live node when the code path that needs it
+                 first runs. Adding one to core means adding it here, in both platforms. -->
             <includes>
                 <include>io.github.radeno:elasticsearch-analysis-opennlp-lemmatizer</include>
                 <include>io.github.radeno:opennlp-lemmatizer-core</include>
                 <include>org.apache.lucene:lucene-analysis-opennlp</include>
                 <include>org.apache.opennlp:opennlp-tools</include>
                 <include>org.slf4j:slf4j-api</include>
+                <!-- unicode_folding: neither is provided by the node. lucene-analysis-icu also ships
+                     inside the separate `analysis-icu` plugin, but plugin classloaders are isolated,
+                     so having that installed would not lend us its copy. -->
+                <include>org.apache.lucene:lucene-analysis-icu</include>
+                <include>com.ibm.icu:icu4j</include>
             </includes>
         </dependencySet>
     </dependencySets>
