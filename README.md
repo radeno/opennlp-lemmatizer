@@ -388,10 +388,15 @@ curl -XPOST localhost:9200/_analyze -H 'Content-Type: application/json' -d '{
 | jLemmaGen (`sk.lem`, for reference) | 99.1 % | 55.5 % |
 | `pos_dictionary_lemmatizer`, folding off | 99.2 % | **27.6 %** |
 | `pos_dictionary_lemmatizer`, `unicode_folding: true` | 99.2 % | **97.8 %** |
+| `dictionary_lemmatizer`, folding off | 100 % | **10.4 %** |
+| `dictionary_lemmatizer`, `unicode_folding: true` | 100 % | **98.9 %** |
 
 The left column is the point: **it does not move.** The folded automaton sits behind both exact
 attempts, so it can only answer where the filter previously had nothing — correctly spelled text comes
-out byte-identical, and `UnicodeFoldingTest` asserts exactly that.
+out byte-identical. Over 20 000 forms, **0 changed their output** with the setting on, and
+`UnicodeFoldingTest` asserts the individual cases. (Both filters score near-perfectly in that column
+because the test set is drawn from the dictionary itself; the off/on comparison is what it establishes,
+not the absolute figure.)
 
 jLemmaGen is in the table because it is the usual alternative and it degrades more gracefully than plain
 exact lookup — its RDR rules have no notion of a miss, so they always produce *something*. But guessing a
@@ -407,8 +412,23 @@ suffix cannot recover a stem it has never seen in that shape, which is why it st
 | accuracy on correctly spelled text | unchanged (byte-identical) |
 | ambiguity introduced | 2.4 % of new keys are claimed by more than one word |
 
+**Where it can cost you accuracy** is one narrow slice, and only on `dictionary_lemmatizer`. That filter
+has no model, so its behaviour for an unknown word is to leave it exactly as written — a safe default
+that folding is allowed to overwrite. A word that is ASCII already, absent from the dictionary, and its
+own lemma can therefore be rewritten into a neighbour:
+
+```
+afektovane  (adverb, its own lemma)  →  afektovaný   ✗
+bas                                  →  basa         ✗
+```
+
+Held out from the Slovak lexicon, folding fires on 3.4 % of such words and breaks **128 of 12 154**
+(≈ 1 %) that had been right when left alone. `pos_dictionary_lemmatizer` does not have this shape of
+risk in the same way: there the alternative was never "leave it alone" but "let the model guess", and
+the model is no more reliable on those words (measured 21.1 % against folding's 19.7 %).
+
 **What it costs in throughput** depends on which filter you put it on, and on one of them it is not a
-cost at all. Folding on against folding off, Slovak lexicon:
+cost at all. Tokens per second, folding on against folding off — these are speed, not accuracy:
 
 | | correctly spelled text | input without diacritics |
 |---|---|---|
