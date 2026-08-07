@@ -413,19 +413,26 @@ suffix cannot recover a stem it has never seen in that shape, which is why it st
 | ambiguity introduced | 2.4 % of new keys are claimed by more than one word |
 
 **Where it can cost you accuracy** is one narrow slice, and only on `dictionary_lemmatizer`. That filter
-has no model, so its behaviour for an unknown word is to leave it exactly as written — a safe default
-that folding is allowed to overwrite. A word that is ASCII already, absent from the dictionary, and its
-own lemma can therefore be rewritten into a neighbour:
+has no model, so its answer for an unknown word is to leave it exactly as written — a safe default that
+folding is allowed to overwrite.
+
+The slice is narrow because a word the dictionary *does* contain never gets there: the exact automaton
+answers it and the folded one is never consulted. What is at risk is a word written in ASCII already,
+**absent from the lexicon entirely**, that is its own lemma — folding can pull it into a neighbour that
+merely folds the same way:
 
 ```
-afektovane  (adverb, its own lemma)  →  afektovaný   ✗
-bas                                  →  basa         ✗
+klimaticky  (adverb, its own lemma; not in sk-mte)  →  klimatický   ✗
 ```
 
-Held out from the Slovak lexicon, folding fires on 3.4 % of such words and breaks **128 of 12 154**
-(≈ 1 %) that had been right when left alone. `pos_dictionary_lemmatizer` does not have this shape of
-risk in the same way: there the alternative was never "leave it alone" but "let the model guess", and
-the model is no more reliable on those words (measured 21.1 % against folding's 19.7 %).
+Over 658 distinct tokens of real Slovak, two were affected at all (`klimaticky`, and `varny`, where
+folding is arguably right). Measured against a held-out slice — words deliberately removed from the
+lexicon, so this is the pessimistic bound — folding fires on 3.4 % of such words and rewrites **128 of
+12 154** (≈ 1 %) that had been right when left alone.
+
+`pos_dictionary_lemmatizer` does not carry this risk in the same shape: there the alternative was never
+"leave it alone" but "let the model guess", and on those same words the model is no better (measured
+21.1 % against folding's 19.7 %).
 
 **What it costs in throughput** depends on which filter you put it on, and on one of them it is not a
 cost at all. Tokens per second, folding on against folding off — these are speed, not accuracy:
