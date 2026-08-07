@@ -22,13 +22,13 @@
     <maven.compiler.release>25</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
-    <!-- engine — same Lucene (10.4.0) is used by both OpenSearch 3.7 and Elasticsearch 9.4 -->
-    <lucene.version>10.4.0</lucene.version>
+    <!-- engine — same Lucene (10.5.0) is used by both OpenSearch 3.8 and Elasticsearch 9.5 -->
+    <lucene.version>10.5.0</lucene.version>
     <opennlp.version>2.5.11</opennlp.version>
 
     <!-- target platforms (latest of each) -->
-    <opensearch.version>3.7.0</opensearch.version>
-    <elasticsearch.version>9.4.4</elasticsearch.version>
+    <opensearch.version>3.8.0</opensearch.version>
+    <elasticsearch.version>9.5.0</elasticsearch.version>
 
     <!-- test -->
     <log4j.version>2.26.1</log4j.version>

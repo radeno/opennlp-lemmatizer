@@ -9,11 +9,11 @@ Run from the **repo root** (the build context is the whole project). Pick langua
 ```bash
 # OpenSearch
 docker build -f examples/docker/opensearch.Dockerfile \
-  --build-arg OPENSEARCH_VERSION=3.7.0 --build-arg LANGS="cs sk" -t opensearch-opennlp:3.7.0 .
+  --build-arg OPENSEARCH_VERSION=3.8.0 --build-arg LANGS="cs sk" -t opensearch-opennlp:3.8.0 .
 
 # Elasticsearch
 docker build -f examples/docker/elasticsearch.Dockerfile \
-  --build-arg ELASTICSEARCH_VERSION=9.4.4 --build-arg LANGS="cs sk" -t elasticsearch-opennlp:9.4.4 .
+  --build-arg ELASTICSEARCH_VERSION=9.5.0 --build-arg LANGS="cs sk" -t elasticsearch-opennlp:9.5.0 .
 ```
 
 `LANGS` is passed straight to `fetch-models.sh`, so it accepts the official OpenNLP model languages
@@ -23,7 +23,7 @@ example `LANGS="cs sk-mte cs-ud"` bakes in the Czech models plus both flat dicti
 in the final image.) Run as usual:
 
 ```bash
-docker run -p 9200:9200 -e discovery.type=single-node opensearch-opennlp:3.7.0
+docker run -p 9200:9200 -e discovery.type=single-node opensearch-opennlp:3.8.0
 ```
 
 The `opennlp_lemmatizer` / `dictionary_lemmatizer` filters are ready immediately — the models are

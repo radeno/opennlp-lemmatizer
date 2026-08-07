@@ -19,7 +19,7 @@ jobs:
           distribution: temurin
           java-version: '25'
           cache: maven
-      # builds for the default node versions (OpenSearch 3.7.0, Elasticsearch 9.4.4)
+      # builds for the default node versions (OpenSearch 3.8.0, Elasticsearch 9.5.0)
       - run: mvn -B clean package -DskipTests
       - uses: softprops/action-gh-release@v3
         with:

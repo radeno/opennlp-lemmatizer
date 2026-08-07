@@ -40,12 +40,12 @@ mvn clean package
 # -> elasticsearch/target/releases/elasticsearch-analysis-opennlp-lemmatizer-<v>.zip
 ```
 
-**Plugins must match your node version exactly.** Defaults: OpenSearch `3.7.0`, Elasticsearch
-`9.4.4`. Build for a different node:
+**Plugins must match your node version exactly.** Defaults: OpenSearch `3.8.0`, Elasticsearch
+`9.5.0`. Build for a different node:
 
 ```bash
-mvn -pl opensearch    -am package -Dopensearch.version=3.7.0
-mvn -pl elasticsearch -am package -Delasticsearch.version=9.4.4
+mvn -pl opensearch    -am package -Dopensearch.version=3.8.0
+mvn -pl elasticsearch -am package -Delasticsearch.version=9.5.0
 ```
 
 ## Models
@@ -65,7 +65,7 @@ Place them in your node's `config/opennlp/` directory.
 > **Versions matter.** The plugin bundles Apache **OpenNLP `opennlp-tools` 2.5.11**, and
 > `fetch-models.sh` pulls **models 1.3.0** (trained with OpenNLP 2.5.4). Any 2.5.x engine reads
 > those models unchanged — lemma output is byte-identical across the line — but a major mismatch
-> (3.x) is untested and can fail to load. (Lucene 10.4.0, JDK 25.)
+> (3.x) is untested and can fail to load. (Lucene 10.5.0, JDK 25.)
 
 For a **larger dictionary**, fetch one of these (all need `python3`; `-mte*` also need `gzip`):
 
@@ -121,7 +121,7 @@ for the exact node version and runs `fetch-models.sh` itself (choose languages w
 
 ```bash
 docker build -f examples/docker/opensearch.Dockerfile \
-  --build-arg OPENSEARCH_VERSION=3.7.0 --build-arg LANGS="cs sk" -t opensearch-opennlp:3.7.0 .
+  --build-arg OPENSEARCH_VERSION=3.8.0 --build-arg LANGS="cs sk" -t opensearch-opennlp:3.8.0 .
 ```
 
 ## Use
