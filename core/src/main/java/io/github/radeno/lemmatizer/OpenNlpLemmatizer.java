@@ -169,6 +169,14 @@ public final class OpenNlpLemmatizer implements LemmatizerFilter {
             throw new IllegalArgumentException("[" + filterName + "] token filter requires both '"
                 + POS_MODEL_SETTING + "' and '" + LEMMATIZER_MODEL_SETTING + "' settings");
         }
+        // Folding is a dictionary feature and this filter has none, so the setting could only ever be
+        // ignored. Saying so beats accepting it: a silently inert setting reads, from the outside,
+        // exactly like one that is working.
+        if (options.unicodeFolding()) {
+            throw new IllegalArgumentException("[" + filterName + "] '" + UNICODE_FOLDING_SETTING
+                + "' needs a dictionary to fold and this filter has none; it belongs on"
+                + " 'dictionary_lemmatizer' or 'pos_dictionary_lemmatizer'");
+        }
         return fromConfig(filterName, configDir, posModelFile, lemmatizerModelFile, null, options);
     }
 
@@ -218,6 +226,10 @@ public final class OpenNlpLemmatizer implements LemmatizerFilter {
         if (dictPath == null && (lemmatizerModelPath == null || !options.modelFallback())) {
             throw new IllegalArgumentException(
                 "a lemmatizer model is required when there is no dictionary to fall back on");
+        }
+        if (dictPath == null && options.unicodeFolding()) {
+            throw new IllegalArgumentException("'" + UNICODE_FOLDING_SETTING
+                + "' needs a dictionary to fold, and none was given");
         }
         boolean loadModel = lemmatizerModelPath != null && (options.modelFallback() || dictPath == null);
         return new OpenNlpLemmatizer(

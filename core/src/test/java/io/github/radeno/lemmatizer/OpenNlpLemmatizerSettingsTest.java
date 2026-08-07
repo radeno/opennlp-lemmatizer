@@ -73,6 +73,25 @@ public class OpenNlpLemmatizerSettingsTest {
             () -> OpenNlpLemmatizer.fromConfig("f", CONFIG, "pos.bin", null, null, LemmatizerOptions.defaults().modelFallback(false)));
     }
 
+    /**
+     * {@code unicode_folding} folds a dictionary, and the model-only filter has none — so the setting
+     * could only sit there doing nothing. It is refused instead: an inert setting is indistinguishable
+     * from a working one until someone notices the results never changed.
+     */
+    @Test
+    public void unicodeFoldingIsRefusedOnTheFilterWithNoDictionary() {
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+            () -> OpenNlpLemmatizer.fromConfig("f", CONFIG, "pos.bin", "lemmas.bin",
+                LemmatizerOptions.defaults().unicodeFolding(true)));
+        assertTrue(e.getMessage(), e.getMessage().contains(OpenNlpLemmatizer.UNICODE_FOLDING_SETTING));
+        assertTrue(e.getMessage(), e.getMessage().contains("dictionary_lemmatizer"));
+
+        // and again at the choke point every path funnels through, for callers using core directly
+        Path pos = Paths.get("pos.bin");
+        assertThrows(IllegalArgumentException.class, () -> OpenNlpLemmatizer.fromModels(pos, pos, null,
+            LemmatizerOptions.defaults().unicodeFolding(true)));
+    }
+
     @Test
     public void aLemmatizerModelIsRequiredWhenThereIsNoDictionary() {
         Path pos = Paths.get("pos.bin");
