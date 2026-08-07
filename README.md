@@ -97,7 +97,7 @@ OpenSearch (3.7.0):
 
 ```bash
 ./bin/opensearch-plugin install \
-  https://github.com/radeno/opennlp-lemmatizer/releases/download/v0.3.0/opensearch-analysis-opennlp-lemmatizer-3.7.0.zip
+  https://github.com/radeno/opennlp-lemmatizer/releases/download/v0.4.0/opensearch-analysis-opennlp-lemmatizer-3.7.0.zip
 ./scripts/fetch-models.sh cs config/opennlp   # downloads the Czech models there, then restart
 ```
 
@@ -105,7 +105,7 @@ Elasticsearch (9.4.4):
 
 ```bash
 ./bin/elasticsearch-plugin install \
-  https://github.com/radeno/opennlp-lemmatizer/releases/download/v0.3.0/elasticsearch-analysis-opennlp-lemmatizer-9.4.4.zip
+  https://github.com/radeno/opennlp-lemmatizer/releases/download/v0.4.0/elasticsearch-analysis-opennlp-lemmatizer-9.4.4.zip
 ./scripts/fetch-models.sh cs config/opennlp   # downloads the Czech models there, then restart
 ```
 
