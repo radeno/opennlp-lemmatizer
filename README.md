@@ -93,21 +93,28 @@ on (gold, human-annotated lemmas) — best where the treebank is large, like Cze
 Install straight from a [GitHub Release](https://github.com/radeno/opennlp-lemmatizer/releases) —
 each zip is named for the node version it was built for.
 
-OpenSearch (3.7.0):
+OpenSearch (3.8.0):
 
 ```bash
 ./bin/opensearch-plugin install \
-  https://github.com/radeno/opennlp-lemmatizer/releases/download/v0.4.0/opensearch-analysis-opennlp-lemmatizer-3.7.0.zip
+  https://github.com/radeno/opennlp-lemmatizer/releases/download/v0.4.1/opensearch-analysis-opennlp-lemmatizer-3.8.0.zip
 ./scripts/fetch-models.sh cs config/opennlp   # downloads the Czech models there, then restart
 ```
 
-Elasticsearch (9.4.4):
+Elasticsearch (9.5.0):
 
 ```bash
 ./bin/elasticsearch-plugin install \
-  https://github.com/radeno/opennlp-lemmatizer/releases/download/v0.4.0/elasticsearch-analysis-opennlp-lemmatizer-9.4.4.zip
+  https://github.com/radeno/opennlp-lemmatizer/releases/download/v0.4.1/elasticsearch-analysis-opennlp-lemmatizer-9.5.0.zip
 ./scripts/fetch-models.sh cs config/opennlp   # downloads the Czech models there, then restart
 ```
+
+Still on OpenSearch 3.7.0 or Elasticsearch 9.4.4? The 0.4.1 zips will not install on those — a plugin
+must match the node exactly, and 0.4.1 targets the newer pair.
+[v0.4.0](https://github.com/radeno/opennlp-lemmatizer/releases/tag/v0.4.0) is the build for them, but
+it predates the fix that stops a `pos_model` / `lemmatizer_model` / `dictionary` setting from naming a
+file outside `config/opennlp/`. To get that fix on an older node, build from source with
+`-Dopensearch.version=` / `-Delasticsearch.version=` set to your node (see [Build](#build)).
 
 Running a **different** node version? A plugin must match it exactly — build from source
 (see [Build](#build)) or bake it into a [custom Docker image](examples/docker/). Releases are cut
