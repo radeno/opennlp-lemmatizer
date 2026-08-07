@@ -198,10 +198,12 @@ public final class OpenNlpLemmatizer implements LemmatizerFilter {
                 + LEMMATIZER_MODEL_SETTING + "' setting (omit it only with a dictionary and '"
                 + MODEL_FALLBACK_SETTING + ": false')");
         }
-        Path dir = configDir.resolve(MODELS_DIRECTORY);
-        Path dictPath = isBlank(lemmatizerDictFile) ? null : dir.resolve(lemmatizerDictFile);
-        Path modelPath = isBlank(lemmatizerModelFile) ? null : dir.resolve(lemmatizerModelFile);
-        return fromModels(dir.resolve(posModelFile), modelPath, dictPath, options);
+        Path dictPath = isBlank(lemmatizerDictFile) ? null
+            : ModelPaths.resolve(filterName, DictionaryLemmatizer.DICTIONARY_SETTING, configDir, lemmatizerDictFile);
+        Path modelPath = isBlank(lemmatizerModelFile) ? null
+            : ModelPaths.resolve(filterName, LEMMATIZER_MODEL_SETTING, configDir, lemmatizerModelFile);
+        Path posPath = ModelPaths.resolve(filterName, POS_MODEL_SETTING, configDir, posModelFile);
+        return fromModels(posPath, modelPath, dictPath, options);
     }
 
     /** Load directly from the two model file paths (no lemmatizer dictionary). */

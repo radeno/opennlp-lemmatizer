@@ -206,6 +206,20 @@ a result.
   `null` FST for empty input, which used to surface as an NPE on the first token analysed).
 - **Elasticsearch analysis test** — mirrors the OpenSearch one, so the two platform wrappers are
   covered symmetrically as `AGENTS.md` requires.
+- **Model/dictionary path traversal** — `pos_model`, `lemmatizer_model` and `dictionary` were resolved
+  with a plain `dir.resolve(name)`, which honours both `../` and absolute names, so a setting could
+  name any file the node's account can read. A dictionary is parsed as `form<TAB>lemma` and comes back
+  out through `_analyze`, so this was disclosure rather than a failed load — with the check disabled,
+  `dictionary: "../../../../etc/passwd"` reached the parser and failed on the file's *contents*
+  (`No entries parsed from /etc/passwd`), not on the path. Now resolved through `ModelPaths`, which
+  normalizes and requires the result to stay inside `<config>/opennlp/`. Found by reading the
+  OpenSearch 3.8.0 changelog: they closed the same hole in their own `resolveAnalyzerPath`
+  ([#22094](https://github.com/opensearch-project/OpenSearch/pull/22094)) — which this plugin never
+  called, since it resolves against the config dir itself. The check lives in `core` deliberately:
+  Elasticsearch gives no equivalent guarantee for plugin-resolved paths, and an OpenSearch 3.7 node
+  does not have the engine-side fix either. It compares the *normalized* path and does not call
+  `toRealPath()`, so a symlinked `config/opennlp/` keeps working — what is rejected is traversal
+  spelled out in the setting.
 
 ## Reference numbers (OS 3.7.0, `_analyze`, 4490 tokens, best-of-5)
 

@@ -68,7 +68,7 @@ public final class DictionaryLemmatizer implements LemmatizerFilter {
             throw new IllegalArgumentException(
                 "[" + filterName + "] token filter requires a '" + DICTIONARY_SETTING + "' setting");
         }
-        Path path = configDir.resolve(OpenNlpLemmatizer.MODELS_DIRECTORY).resolve(dictionaryFile);
+        Path path = ModelPaths.resolve(filterName, DICTIONARY_SETTING, configDir, dictionaryFile);
         // The folding flag joins the cache key: it changes which automata get built, so a folding and a
         // non-folding index reading the same file need separate entries rather than one racing the other.
         var cached = ModelCache.loadShared(CACHE, path, options.dictionaryVariant(),
