@@ -27,6 +27,14 @@ public final class LemmatizerFilters {
     /**
      * {@code opennlp_lemmatizer} — POS tagger plus MaxEnt lemmatizer model, no dictionary.
      *
+     * <p>{@code pos_format} applies here too, even with no dictionary to key. The setting swaps the
+     * tagger itself — Lucene's {@code NLPPOSTaggerOp} coerces every tag to Penn, {@code native} keeps
+     * the model's own tagset — and those tags are what the MaxEnt lemmatizer receives as the POS half
+     * of each {@code (word, POS)} pair, as well as what lands in the token's {@code type}. A UD/UPOS
+     * model pair therefore needs {@code native} on this filter exactly as it does on the POS-aware
+     * dictionary one. It used to be read only by {@link #posDictionary}, so on this filter it sat
+     * there doing nothing — and an unknown value was not even rejected.
+     *
      * @param name      the token-filter name, used in validation messages
      * @param configDir the node's config directory; models are read from {@code <configDir>/opennlp/}
      * @param get       reads a string setting, e.g. {@code settings::get}
@@ -39,7 +47,9 @@ public final class LemmatizerFilters {
             configDir,
             get.apply(OpenNlpLemmatizer.POS_MODEL_SETTING),
             get.apply(OpenNlpLemmatizer.LEMMATIZER_MODEL_SETTING),
-            LemmatizerOptions.from(false, flags));
+            LemmatizerOptions.from(
+                OpenNlpLemmatizer.isNativePosFormat(name, get.apply(OpenNlpLemmatizer.POS_FORMAT_SETTING)),
+                flags));
     }
 
     /**

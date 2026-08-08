@@ -154,7 +154,11 @@ Ready-made analyzer configs for both filters, per language, are in [examples/](e
 ### POS-aware: `opennlp_lemmatizer`
 
 The filter type is `opennlp_lemmatizer` with two required settings: `pos_model` and
-`lemmatizer_model` (file names under `config/opennlp/`). Quick check with `_analyze`:
+`lemmatizer_model` (file names under `config/opennlp/`). Optional: `keep_original` and
+[`pos_format`](#pos_format-advanced) — a model pair with its own tagset (UD/UPOS) needs
+`pos_format: native` here just as it does on the dictionary filter, since the tags decide what the
+MaxEnt lemmatizer is asked to lemmatise and what lands in each token's `type`. Quick check with
+`_analyze`:
 
 Czech:
 
@@ -274,6 +278,12 @@ curl -XPOST localhost:9200/_analyze -H 'Content-Type: application/json' -d '{
 > dict has Penn `NN`) → degraded model fallback. The two must agree. Only `penn`, `native` and `custom`
 > are accepted; anything else (`ud`, a typo) is rejected when the index is created rather than silently
 > read as `penn`.
+>
+> It applies to **`opennlp_lemmatizer`** too, even though that filter has no dictionary to key: the
+> setting swaps the tagger, so it decides the POS half of every `(word, POS)` pair the MaxEnt
+> lemmatizer receives and the tag written to each token's `type`. Up to and including **0.4.1** it was
+> read only on the dictionary filter, so on `opennlp_lemmatizer` it was silently inert and a bad value
+> went unreported.
 >
 > **POS-relaxed fallback.** A form with a single lemma regardless of part of speech also gets a
 > `form<TAB>*<TAB>lemma` row, so when the POS tagger mis-tags such a word (`saunu` called a verb) the

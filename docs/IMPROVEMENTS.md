@@ -199,6 +199,16 @@ a result.
 - **`model_fallback: false`** — turns the MaxEnt fallback off for `pos_dictionary_lemmatizer`: a
   dictionary miss leaves the token unchanged (pure dictionary, predictable output, no
   `lemmatizer_model` needed).
+- **`pos_format` on `opennlp_lemmatizer`** — the setting was read only on the way to
+  `pos_dictionary_lemmatizer`; `LemmatizerFilters.opennlp` passed a hard-coded `false`, so on the
+  model-only filter it was silently inert *and* an unknown value was not rejected — both halves of the
+  failure mode the entry below exists to prevent. It is meaningful there because it swaps the tagger,
+  and those tags are the POS half of every `(word, POS)` pair the MaxEnt lemmatizer receives as well as
+  the token's `type`; a UD/UPOS model pair needs `native` on this filter too. Fixed by reading it, not
+  by rejecting it — rejecting would have broken that pair. Found on a live 9.5.0/3.8.0 node while
+  verifying 0.4.1: `pos_format: "ud"` returned tokens instead of a 400. Guarded by
+  `PosFormatWiringTest`, which asserts both the rejection and that `native` actually changes the
+  emitted tags (without the fix they collapse to Penn `[NN, VB, IN, NN]`).
 - **`pos_format` validation** — an unrecognised value used to fall through to `penn` silently, which
   degrades a native-tagged dictionary to 100 % model fallback. It now fails fast at index creation.
 - **Dictionary load logging + empty-file fail-fast** — `FstBuilder` logs entry count, streamed vs
