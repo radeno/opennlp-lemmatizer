@@ -15,12 +15,12 @@ Outputs:
 - `opensearch/target/releases/opensearch-analysis-opennlp-lemmatizer-<v>.zip`
 - `elasticsearch/target/releases/elasticsearch-analysis-opennlp-lemmatizer-<v>.zip`
 
-**A plugin must match the target node version exactly.** Defaults: OpenSearch `3.8.0`,
-Elasticsearch `9.5.0`. Build for a specific node:
+**A plugin must match the target node version exactly.** Defaults: OpenSearch `3.9.0`,
+Elasticsearch `9.5.5`. Build for a specific node:
 
 ```bash
-mvn -pl opensearch    -am package -Dopensearch.version=3.8.0
-mvn -pl elasticsearch -am package -Delasticsearch.version=9.5.0
+mvn -pl opensearch    -am package -Dopensearch.version=3.9.0
+mvn -pl elasticsearch -am package -Delasticsearch.version=9.5.5
 ```
 
 ## Test

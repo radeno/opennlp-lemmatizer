@@ -22,13 +22,13 @@
     <maven.compiler.release>25</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
-    <!-- engine — same Lucene (10.5.0) is used by both OpenSearch 3.8 and Elasticsearch 9.5 -->
-    <lucene.version>10.5.0</lucene.version>
-    <opennlp.version>2.5.11</opennlp.version>
+    <!-- engine — same Lucene (10.5.1) is used by both OpenSearch 3.9 and Elasticsearch 9.5.5 -->
+    <lucene.version>10.5.1</lucene.version>
+    <opennlp.version>2.5.12</opennlp.version>
 
     <!-- target platforms (latest of each) -->
-    <opensearch.version>3.8.0</opensearch.version>
-    <elasticsearch.version>9.5.0</elasticsearch.version>
+    <opensearch.version>3.9.0</opensearch.version>
+    <elasticsearch.version>9.5.5</elasticsearch.version>
 
     <!-- test -->
     <log4j.version>2.26.1</log4j.version>
@@ -112,7 +112,7 @@
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-surefire-plugin</artifactId>
-          <version>3.5.6</version>
+          <version>3.6.0</version>
           <configuration>
             <argLine>-Dtests.security.manager=false</argLine>
             <!-- shared test models live in <repo-root>/models (gitignored, fetched by scripts) -->

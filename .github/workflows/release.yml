@@ -14,12 +14,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '25'
           cache: maven
-      # builds for the default node versions (OpenSearch 3.8.0, Elasticsearch 9.5.0)
+      # builds for the default node versions (OpenSearch 3.9.0, Elasticsearch 9.5.5)
       - run: mvn -B clean package -DskipTests
       - uses: softprops/action-gh-release@v3
         with:

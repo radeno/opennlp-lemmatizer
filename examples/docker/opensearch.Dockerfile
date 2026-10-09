@@ -4,12 +4,12 @@
 #
 # Build (from the repo root):
 #   docker build -f examples/docker/opensearch.Dockerfile \
-#     --build-arg OPENSEARCH_VERSION=3.8.0 --build-arg LANGS="cs sk" -t opensearch-opennlp:3.8.0 .
+#     --build-arg OPENSEARCH_VERSION=3.9.0 --build-arg LANGS="cs sk" -t opensearch-opennlp:3.9.0 .
 #
 # LANGS is a space-separated list passed to fetch-models.sh (e.g. "cs sk", "sk-mte", or "sk-mte-pos").
 #
 # syntax=docker/dockerfile:1
-ARG OPENSEARCH_VERSION=3.8.0
+ARG OPENSEARCH_VERSION=3.9.0
 
 # --- stage 1: build the plugin for this exact version + fetch the models ---
 FROM maven:3.9-eclipse-temurin-25 AS build
