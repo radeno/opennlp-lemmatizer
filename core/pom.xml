@@ -7,7 +7,7 @@
   <parent>
     <groupId>io.github.radeno</groupId>
     <artifactId>opennlp-lemmatizer-parent</artifactId>
-    <version>0.4.1</version>
+    <version>0.4.2</version>
   </parent>
 
   <artifactId>opennlp-lemmatizer-core</artifactId>
