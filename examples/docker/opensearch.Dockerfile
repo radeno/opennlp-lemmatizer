@@ -25,7 +25,7 @@ RUN mkdir -p models && for lang in ${LANGS}; do bash scripts/fetch-models.sh "${
 
 # --- stage 2: the image ---
 FROM opensearchproject/opensearch:${OPENSEARCH_VERSION}
-COPY --from=build /src/opensearch/target/releases/opensearch-analysis-opennlp-lemmatizer-*.zip /tmp/plugin.zip
+COPY --from=build --chown=1000:0 /src/opensearch/target/releases/opensearch-analysis-opennlp-lemmatizer-*.zip /tmp/plugin.zip
 RUN /usr/share/opensearch/bin/opensearch-plugin install --batch file:///tmp/plugin.zip \
  && rm /tmp/plugin.zip
 COPY --from=build /src/models/ /usr/share/opensearch/config/opennlp/

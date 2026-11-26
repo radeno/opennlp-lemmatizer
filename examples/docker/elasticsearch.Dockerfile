@@ -26,7 +26,7 @@ RUN mkdir -p models && for lang in ${LANGS}; do bash scripts/fetch-models.sh "${
 
 # --- stage 2: the image ---
 FROM docker.elastic.co/elasticsearch/elasticsearch:${ELASTICSEARCH_VERSION}
-COPY --from=build /src/elasticsearch/target/releases/elasticsearch-analysis-opennlp-lemmatizer-*.zip /tmp/plugin.zip
+COPY --from=build --chown=1000:0 /src/elasticsearch/target/releases/elasticsearch-analysis-opennlp-lemmatizer-*.zip /tmp/plugin.zip
 RUN bin/elasticsearch-plugin install --batch file:///tmp/plugin.zip \
  && rm /tmp/plugin.zip
 COPY --from=build /src/models/ config/opennlp/
