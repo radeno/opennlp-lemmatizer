@@ -4,12 +4,12 @@
 #
 # Build (from the repo root):
 #   docker build -f examples/docker/opensearch.Dockerfile \
-#     --build-arg OPENSEARCH_VERSION=3.9.0 --build-arg LANGS="cs sk" -t opensearch-opennlp:3.9.0 .
+#     --build-arg OPENSEARCH_VERSION=3.10.1 --build-arg LANGS="cs sk" -t opensearch-opennlp:3.10.1 .
 #
 # LANGS is a space-separated list passed to fetch-models.sh (e.g. "cs sk", "sk-mte", or "sk-mte-pos").
 #
 # syntax=docker/dockerfile:1
-ARG OPENSEARCH_VERSION=3.9.0
+ARG OPENSEARCH_VERSION=3.10.1
 
 # --- stage 1: build the plugin for this exact version + fetch the models ---
 FROM maven:3.9-eclipse-temurin-25 AS build
@@ -19,8 +19,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl unzip pyth
 WORKDIR /src
 COPY . .
 ARG OPENSEARCH_VERSION
+# the Lucene that node ships; override together with OPENSEARCH_VERSION
+ARG LUCENE_VERSION=10.6.0
 ARG LANGS="cs sk"
-RUN mvn -B -pl opensearch -am package -DskipTests -Dopensearch.version=${OPENSEARCH_VERSION}
+RUN mvn -B -pl opensearch -am package -DskipTests -Dopensearch.version=${OPENSEARCH_VERSION} -Dopensearch.lucene.version=${LUCENE_VERSION}
 RUN mkdir -p models && for lang in ${LANGS}; do bash scripts/fetch-models.sh "${lang}"; done
 
 # --- stage 2: the image ---

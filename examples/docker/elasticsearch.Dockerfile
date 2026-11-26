@@ -4,13 +4,13 @@
 #
 # Build (from the repo root):
 #   docker build -f examples/docker/elasticsearch.Dockerfile \
-#     --build-arg ELASTICSEARCH_VERSION=9.5.5 --build-arg LANGS="cs sk" -t elasticsearch-opennlp:9.5.5 .
+#     --build-arg ELASTICSEARCH_VERSION=9.5.7 --build-arg LANGS="cs sk" -t elasticsearch-opennlp:9.5.7 .
 #
 # LANGS is a space-separated list passed to fetch-models.sh (e.g. "cs sk", "sk-mte", or "sk-mte-pos").
 # The plugin's elasticsearch.version must match the base image exactly — the build-arg handles both.
 #
 # syntax=docker/dockerfile:1
-ARG ELASTICSEARCH_VERSION=9.5.5
+ARG ELASTICSEARCH_VERSION=9.5.7
 
 # --- stage 1: build the plugin for this exact version + fetch the models ---
 FROM maven:3.9-eclipse-temurin-25 AS build
@@ -20,8 +20,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl unzip pyth
 WORKDIR /src
 COPY . .
 ARG ELASTICSEARCH_VERSION
+# the Lucene that node ships; override together with ELASTICSEARCH_VERSION
+ARG LUCENE_VERSION=10.5.2
 ARG LANGS="cs sk"
-RUN mvn -B -pl elasticsearch -am package -DskipTests -Delasticsearch.version=${ELASTICSEARCH_VERSION}
+RUN mvn -B -pl elasticsearch -am package -DskipTests -Delasticsearch.version=${ELASTICSEARCH_VERSION} -Delasticsearch.lucene.version=${LUCENE_VERSION}
 RUN mkdir -p models && for lang in ${LANGS}; do bash scripts/fetch-models.sh "${lang}"; done
 
 # --- stage 2: the image ---

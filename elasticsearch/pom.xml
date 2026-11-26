@@ -14,6 +14,11 @@
   <name>elasticsearch-analysis-opennlp-lemmatizer</name>
   <description>OpenNLP POS-aware lemmatizer token filter plugin for Elasticsearch</description>
 
+  <properties>
+    <!-- the Lucene this node ships; also governs what `core` pulls in transitively -->
+    <lucene.version>${elasticsearch.lucene.version}</lucene.version>
+  </properties>
+
   <dependencies>
     <dependency>
       <groupId>io.github.radeno</groupId>

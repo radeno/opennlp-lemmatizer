@@ -15,12 +15,14 @@ Outputs:
 - `opensearch/target/releases/opensearch-analysis-opennlp-lemmatizer-<v>.zip`
 - `elasticsearch/target/releases/elasticsearch-analysis-opennlp-lemmatizer-<v>.zip`
 
-**A plugin must match the target node version exactly.** Defaults: OpenSearch `3.9.0`,
-Elasticsearch `9.5.5`. Build for a specific node:
+**A plugin must match the target node version exactly.** Defaults: OpenSearch `3.10.1`,
+Elasticsearch `9.5.7`. The two nodes ship different Lucene versions (10.6.0 and 10.5.2), set per
+platform by `<platform>.lucene.version` in the parent POM; `core` compiles against the older one.
+Build for a specific node, naming both:
 
 ```bash
-mvn -pl opensearch    -am package -Dopensearch.version=3.9.0
-mvn -pl elasticsearch -am package -Delasticsearch.version=9.5.5
+mvn -pl opensearch    -am package -Dopensearch.version=3.9.0    -Dopensearch.lucene.version=10.5.1
+mvn -pl elasticsearch -am package -Delasticsearch.version=9.5.5 -Delasticsearch.lucene.version=10.5.1
 ```
 
 ## Test
